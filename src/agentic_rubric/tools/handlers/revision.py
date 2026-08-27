@@ -80,8 +80,8 @@ def _validate_candidate(original: str, candidate: str) -> str | None:
             f"{original_words}; that is a summary, not a revision"
         )
 
-    diff = unified_diff_summary(original, candidate)
-    if float(diff["similarity"]) >= NO_CHANGE_SIMILARITY:
+    similarity = unified_diff_summary(original, candidate).get("similarity")
+    if isinstance(similarity, (int, float)) and similarity >= NO_CHANGE_SIMILARITY:
         return "the reviser returned text identical to the input; no edit was made"
     return None
 

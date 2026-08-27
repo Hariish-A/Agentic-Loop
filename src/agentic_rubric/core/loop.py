@@ -24,9 +24,11 @@ Termination has three sources, in priority order:
    may stop the run at either iteration boundary.
 
 The harness attaches through exactly two seams, ``controller`` and ``act_fn``,
-and both default to "no harness". That is why there is no ``try/except`` here:
-retry, repair, failover and budget enforcement live in :mod:`..harness`, and the
-loop stays readable as the four steps it is meant to demonstrate.
+and both default to "no harness". Retry, repair, failover and budget enforcement
+all live in :mod:`..harness`, so none of them appears here and the loop stays
+readable as the four steps it is meant to demonstrate. The single ``except`` in
+this module guards a memory *write*, which is an enhancement the run is allowed
+to lose -- not error handling the harness should have owned.
 
 Whatever the reason, the run returns the **best-scoring draft ever seen**, not
 the last one produced. A revision can make things worse, and an improvement
@@ -346,13 +348,19 @@ class AgenticLoop:
                 else f"stopped at the {cap}-iteration cap before any score was recorded"
             )
 
-        result = self._build_result(state, state.usage, time.perf_counter() - started)
+        # Named apart from the per-iteration `result` above: one is an
+        # ActionResult, this is the RunResult. Reusing the name compiled but
+        # made the last twenty lines of the loop read as though a tool call
+        # had somehow become the run.
+        run_result = self._build_result(state, state.usage, time.perf_counter() - started)
         # The `harness` block is dropped: the loop never learns that a retry,
         # a repair or a failover happened, so reporting zeroes for them here
         # would be a confident lie. The runner emits `run_summary` with the
         # real numbers once it has folded them in.
-        self._emit("run_end", **{k: v for k, v in result.to_dict().items() if k != "harness"})
-        return result
+        self._emit(
+            "run_end", **{k: v for k, v in run_result.to_dict().items() if k != "harness"}
+        )
+        return run_result
 
     # -- output -------------------------------------------------------------
 

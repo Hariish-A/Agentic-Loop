@@ -95,8 +95,12 @@ def judge(
             # four correct scores. ScoreCard.build defaults anything missing.
             skipped.append(criterion_id or "<blank>")
             continue
+        raw_score = entry.get("score")
+        if raw_score is None:
+            skipped.append(criterion_id)
+            continue
         try:
-            raw_value = float(entry.get("score"))
+            raw_value = float(raw_score)
         except (TypeError, ValueError):
             skipped.append(criterion_id)
             continue

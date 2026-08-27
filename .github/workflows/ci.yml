@@ -1,0 +1,192 @@
+# ---------------------------------------------------------------------------
+# CI needs no secrets. Every test runs against the deterministic MockProvider,
+# so a fork, a pull request from a contributor with no access, and a run on a
+# day the Groq free tier is exhausted all behave identically.
+#
+# Four jobs, each answering a different question:
+#
+#   quality      does it lint and type-check?
+#   test         does it pass on the oldest and newest supported Python?
+#   test-vector  does the *semantic* memory path work, not just the fallback?
+#   demo         does the actual command a reviewer will type still work?
+#
+# `test` deliberately runs with AGENTIC_MEMORY__EMBEDDER=none. That is not a
+# shortcut around the embedding model -- it exercises the FTS5/BM25 degradation
+# path on every commit, which is the same path the harness falls back to when
+# the embedder is unavailable in production. `test-vector` covers the other
+# half with the model cached.
+# ---------------------------------------------------------------------------
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["milestone-*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONPATH: src
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  quality:
+    name: lint + types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - name: ruff
+        run: ruff check src tests scripts
+      - name: mypy
+        run: mypy
+
+  test:
+    name: tests (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor the project claims to support, and the one it is developed
+        # on. Anything in between is covered by these two in practice.
+        python: ["3.10", "3.12"]
+    env:
+      # Keyword-only recall: no model download, no network, and the fallback
+      # path gets exercised on every commit rather than only when it breaks.
+      AGENTIC_MEMORY__EMBEDDER: none
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - name: pytest
+        run: pytest -q --cov=agentic_rubric --cov-report=term-missing --cov-fail-under=88
+
+  test-vector:
+    name: tests (semantic memory)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - name: cache the ONNX embedding model
+        uses: actions/cache@v4
+        with:
+          path: models
+          key: fastembed-bge-small-en-v1.5-v1
+      - name: warm the model
+        run: python scripts/warm_models.py
+      - name: pytest with sqlite-vec + fastembed
+        run: pytest -q
+
+  demo:
+    name: end-to-end demo
+    runs-on: ubuntu-latest
+    needs: [test]
+    env:
+      AGENTIC_MEMORY__EMBEDDER: none
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - run: pip install -r requirements.txt
+
+      - name: preflight reports the provider chain
+        run: python scripts/preflight.py
+
+      - name: the loop reaches its target offline
+        run: |
+          python -m agentic_rubric.cli --input samples/weak_essay.txt \
+              --provider mock --session ci --json > result.json
+          python - <<'PY'
+          import json
+          result = json.load(open("result.json"))
+          assert result["status"] == "target_reached", result["status"]
+          assert result["iterations"] >= 3, result["iterations"]
+          assert result["improvement"] > 0, result["improvement"]
+          print(f"{result['iterations']} iterations, "
+                f"{result['initial_score']:.1f}% -> {result['best_score']:.1f}%")
+          PY
+
+      - name: the same code path handles a different rubric
+        run: |
+          python -m agentic_rubric.cli --input samples/weak_bug_report.txt \
+              --rubric config/rubrics/bug_report.yaml --provider mock --quiet
+
+      - name: memory changes behaviour across sessions
+        run: python scripts/memory_ab_demo.py
+
+      - name: every injected failure is recovered from
+        run: |
+          for kind in rate_limit server_error bad_json provider_down tool_error memory_down; do
+            echo "--- $kind ---"
+            python -m agentic_rubric.cli --input samples/weak_essay.txt \
+                --provider mock --quiet --session "ci-$kind" \
+                --simulate-failure "$kind"
+          done
+
+      - name: the budget guardrail stops the run and keeps the best draft
+        run: |
+          set +e
+          python -m agentic_rubric.cli --input samples/weak_essay.txt \
+              --provider mock --quiet --no-memory --simulate-failure budget --json > budget.json
+          code=$?
+          set -e
+          # budget_exhausted is not a success, so a non-zero exit is correct here.
+          test "$code" -eq 1 || { echo "expected exit 1, got $code"; exit 1; }
+          python - <<'PY'
+          import json
+          result = json.load(open("budget.json"))
+          assert result["status"] == "budget_exhausted", result["status"]
+          # The work already paid for is handed back, not thrown away.
+          assert result["best_score"] is not None, "the best draft was lost"
+          print("stopped cleanly at", result["tokens"]["total"], "tokens")
+          PY
+
+      - name: upload the run traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-traces
+          path: runs/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  docker:
+    name: docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: build the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: agentic-rubric-loop:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: the container runs the loop offline
+        run: |
+          docker run --rm agentic-rubric-loop:ci \
+              --input samples/weak_essay.txt --provider mock --no-memory --quiet

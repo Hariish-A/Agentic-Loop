@@ -33,3 +33,6 @@ models/
 .idea/
 .DS_Store
 Thumbs.db
+
+# generated print previews from scripts/make_pdf.py
+docs/*.html

@@ -382,7 +382,14 @@ def main(argv: t.Sequence[str] | None = None) -> int:
         chain=chain,
         memory=memory,
         registry=build_run_registry(args, rubric),
-        console=None if args.quiet else ConsoleRenderer(verbose=args.verbose),
+        console=None if args.quiet else ConsoleRenderer(
+            # With --json, stdout belongs to the JSON document alone. Sending
+            # the transcript there too would make `... --json | jq` fail unless
+            # the caller also remembered --quiet, which is a trap rather than
+            # an interface.
+            stream=sys.stderr if args.json else sys.stdout,
+            verbose=args.verbose,
+        ),
     )
 
     try:

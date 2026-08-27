@@ -8,9 +8,26 @@ of scaffolding with the specific way an unsupervised run goes wrong without it.
 
 The organising principle is stated once, up front, because everything else follows from it:
 
-> **`core/` contains no `try`/`except` at all.** Perceive, Reason, Act, Reflect and the loop that
-> wires them read as the four steps they are meant to demonstrate. Every failure is handled by an
-> object that was *substituted for one of the loop's collaborators* before it started.
+> **No retry, backoff, jitter, failover, provider-chain, budget or timeout logic appears anywhere
+> in `core/`.** Every one of them is handled by an object that was *substituted for one of the
+> loop's collaborators* before it started, so Perceive, Reason, Act, Reflect and the loop that wires
+> them read as the four steps they are meant to demonstrate.
+
+To be precise about what that does and does not mean, because "no error handling in the core" would
+be a nicer sentence than an honest one: `core/` contains **seven** `except` clauses.
+`core/loop.py` has exactly one, and it guards a memory *write*. The other six are single-clause
+degradations that are part of the loop's own semantics and predate the harness entirely:
+
+| Where | Clause | What it does |
+|---|---|---|
+| `loop.py` | `except Exception` | a failed memory write becomes a note; the run continues |
+| `perceive.py` | `except Exception` | a failed memory read becomes a note in the Observation |
+| `reason.py` | `except LLMParseError` ×2 | fall back to a safe **read-only** action, marked `degraded=True` |
+| `reflect.py` | `except (LLMError, LLMParseError)` | fall back to a rule-based critique |
+| `rubric.py` | `except re.error`, `except (KeyError, …)` | report a malformed rubric YAML to the user |
+
+None of them retries, sleeps, counts attempts, or knows that a provider chain exists. That is the
+line the harness draws.
 
 ---
 
@@ -26,8 +43,8 @@ satisfy exactly the same interfaces:
 | `controller` | `None` | `Guardrails` — budget, clock, cap, stuck detection | [`harness/guardrails.py`](../src/agentic_rubric/harness/guardrails.py) |
 | `on_event` | a console renderer, or nothing | tracer + renderer + logger, fanned out | [`observability/trace.py`](../src/agentic_rubric/observability/trace.py) |
 
-Two of these were already there for other reasons (`provider`, `on_event`). The two added in
-Milestone 3 total **eleven lines** in `core/loop.py`.
+Two of these were already there for other reasons (`provider`, `on_event`). The two
+added in Milestone 3 cost **five lines inside `run()`** -- a stop check at each iteration boundary, and `act(...)` becoming `self._act(...)` -- plus three short helpers and a `Protocol` declaration.
 
 The `LoopController` protocol is deliberately unable to do anything except stop the run:
 

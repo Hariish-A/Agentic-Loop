@@ -6,7 +6,7 @@ import pytest
 
 from agentic_rubric.config import load_config
 from agentic_rubric.core.rubric import CriterionScore, Rubric, ScoreCard
-from agentic_rubric.core.state import Decision, Workspace
+from agentic_rubric.core.state import Decision, ErrorKind, Workspace
 from agentic_rubric.llm.mock import MockProvider, MockTurn, tool_call
 from agentic_rubric.llm.types import RateLimitError
 from agentic_rubric.tools.definitions import build_registry
@@ -399,3 +399,69 @@ def test_metrics_survive_empty_input() -> None:
 def test_diff_summary_detects_no_change() -> None:
     assert unified_diff_summary(DRAFT, DRAFT)["changed"] is False
     assert unified_diff_summary(DRAFT, DRAFT + "\nAnd one more line.")["changed"] is True
+
+
+# ===========================================================================
+# Handler contracts that the happy path never reaches
+# ===========================================================================
+
+
+def idle(name: str = "idle") -> MockProvider:
+    """A provider these tests must never reach: they exercise pure-Python tools."""
+    return MockProvider([MockTurn(text="should never be called")], name=name)
+
+
+def test_analyze_refuses_an_empty_draft(rubric: Rubric) -> None:
+    ctx = make_ctx(rubric, idle(), draft="   \n  ")
+    result = build_registry(rubric).dispatch(Decision(action="analyze_text"), ctx)
+    assert result.ok is False
+    assert result.error_kind is ErrorKind.RECOVERABLE   # the agent should read this
+    assert "nothing to analyse" in (result.error or "")
+
+
+def test_analyze_can_be_narrowed_to_named_criteria(rubric: Rubric) -> None:
+    """So a targeted revision can check only the probes it is trying to fix."""
+    ctx = make_ctx(rubric, idle())
+    registry = build_registry(rubric)
+
+    everything = registry.dispatch(Decision(action="analyze_text"), ctx)
+    narrowed = registry.dispatch(
+        Decision(action="analyze_text", arguments={"criteria": ["evidence"]}), ctx
+    )
+    assert narrowed.ok is True
+    assert len(narrowed.output["probes"]) < len(everything.output["probes"])
+    assert narrowed.output["probes"]  # and it is not empty
+
+
+def test_analyze_rejects_a_criterion_this_rubric_does_not_have(rubric: Rubric) -> None:
+    """The error names the real ids, because an LLM is what reads it next."""
+    result = build_registry(rubric).dispatch(
+        Decision(action="analyze_text", arguments={"criteria": ["nonexistent"]}),
+        make_ctx(rubric, idle()),
+    )
+    assert result.ok is False
+    assert "nonexistent" in (result.error or "")
+    assert "thesis" in (result.error or "")
+
+
+def test_diff_reports_what_a_revision_actually_changed(rubric: Rubric) -> None:
+    ctx = make_ctx(rubric, idle())
+    ctx.workspace.replace_draft(
+        DRAFT + "\n\nA newly added paragraph carrying real substance and a 2023 figure."
+    )
+
+    result = build_registry(rubric).dispatch(Decision(action="diff_drafts"), ctx)
+    assert result.ok is True
+    assert "line(s) added" in result.summary
+    assert result.output["diff"]["word_delta"] > 0
+    assert result.output["added_preview"]
+
+
+def test_diff_calls_an_unchanged_revision_what_it_is(rubric: Rubric) -> None:
+    """Stops the agent grading its own homework on a no-op edit."""
+    ctx = make_ctx(rubric, idle())
+    ctx.workspace.replace_draft(DRAFT)
+
+    result = build_registry(rubric).dispatch(Decision(action="diff_drafts"), ctx)
+    assert result.ok is True
+    assert "no meaningful change" in result.summary

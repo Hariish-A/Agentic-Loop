@@ -76,9 +76,11 @@ def handle_diff(arguments: dict[str, t.Any], ctx: ToolContext) -> ToolOutput:
             "there is no previous draft to compare against; the text has not been revised yet"
         )
 
-    diff = unified_diff_summary(ctx.workspace.draft, previous)
-    # unified_diff_summary(before, after) was called with the current draft as
-    # `before`, so flip the labels back to previous -> current.
+    # previous -> current, which is the direction a reader expects to read a
+    # revision in. (An earlier version also computed the reverse diff for a
+    # `reverse_similarity` field. difflib's ratio is symmetric with
+    # autojunk=False, so that was a second full pass over the document
+    # producing a number we already had, consumed by nothing.)
     forward = unified_diff_summary(previous, ctx.workspace.draft)
 
     verdict = (
@@ -96,7 +98,6 @@ def handle_diff(arguments: dict[str, t.Any], ctx: ToolContext) -> ToolOutput:
         ),
         payload={
             "diff": forward,
-            "reverse_similarity": diff["similarity"],
             "added_preview": added[:5],
         },
     )

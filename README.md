@@ -7,8 +7,15 @@ The agent scores a draft against a weighted rubric, decides which criterion is t
 lever, revises the text targeting that criterion, re-scores, and repeats until it hits the target
 score, plateaus, or trips a guardrail.
 
-> **Status:** Milestones 1, 2 and 3 complete. See [Plan.md](Plan.md) for the task list and
-> [progress.md](progress.md) for what is done and what is next.
+[![CI](https://github.com/Hariish-A/Agentic-Loop/actions/workflows/ci.yml/badge.svg)](https://github.com/Hariish-A/Agentic-Loop/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.10%20%7C%203.12-blue)
+![Tests](https://img.shields.io/badge/tests-303%20passing-brightgreen)
+![Coverage](https://img.shields.io/badge/coverage-91%25-brightgreen)
+![Cost](https://img.shields.io/badge/running%20cost-%240-brightgreen)
+
+> **Status:** all four milestones complete. [Plan.md](Plan.md) is the task list;
+> [progress.md](progress.md) is the running log of what was built, what broke, and why each
+> decision was made.
 
 ---
 
@@ -18,20 +25,52 @@ A rubric score is a real, external, numeric observation. That makes the loop *ve
 see whether iteration 3 actually beat iteration 2, rather than taking the model's word for it. It
 also makes Reflexion a natural fit — the scalar reward that pattern assumes is just sitting there.
 
+### Where each evaluation area lives
+
+| Area | Where to look | One-line claim |
+|---|---|---|
+| **Loop correctness** | [`core/`](src/agentic_rubric/core/) — one file per step | Perceive and Act use **no LLM at all**, so the four steps cannot collapse into four prompts. `LoopState.advance()` is the feedback edge |
+| **Memory integration** | [`memory/`](src/agentic_rubric/memory/), [docs/02](docs/02_memory_design.md) | An A/B with a **cold-store control** proves a lesson written in session A changes session B's second decision |
+| **Harness engineering** | [`harness/`](src/agentic_rubric/harness/), [docs/03](docs/03_harness_design.md) | **No retry, failover or budget logic anywhere in `core/`**; proved live by absorbing 15 real rate limits |
+| **Patterns understanding** | [docs/01](docs/01_patterns_research.md) | ReAct + Reflexion + CoT applied, shallow ToT optional, **LATS explicitly rejected** with reasons |
+| **Tool design** | [`tools/`](src/agentic_rubric/tools/) | Schemas generated **from the rubric**; two of five tools never call a model |
+| **Code quality** | `pytest`, `ruff`, `mypy` | 303 tests, 91% coverage, zero lint findings, `disallow_untyped_defs` clean |
+
 ---
 
 ## Architecture
 
 ```
-                 ┌───────────────────────── Reflection feeds forward ──────────────────────────┐
-                 │                                                                             │
-                 ▼                                                                             │
-   input ──▶ PERCEIVE ──▶ REASON ──▶ ACT ──▶ REFLECT ──▶ done? ──yes──▶ best draft + trace      │
-             (no LLM)     (1 LLM     (pure    (LLM +        │                                   │
-                           call,     dispatch  determin-    └──no──────────────────────────────┘
-                           forced    only)     istic)
-                           tools)
+                        ┌──────────── HARNESS (harness/) ────────────┐
+                        │  retry · fallbacks · guardrails · tracing   │
+                        │  substituted for the loop's collaborators   │
+                        └──┬───────────────┬──────────────┬───────────┘
+                           │               │              │
+      ┌────────────────────┼───────────────┼──────────────┼──────────────────────┐
+      │  ┌──── Reflection feeds forward ───┼──────────────┼───────────────────┐  │
+      │  │                                 │              │                   │  │
+      │  ▼                                 ▼              ▼                   │  │
+ in ──┼▶ PERCEIVE ──────▶ REASON ───────▶ ACT ───────▶ REFLECT ──▶ done? ──no──┘  │
+      │  no LLM          1 LLM call      dispatch      rules            │         │
+      │  metrics+probes  forced tools    only          + 1 LLM call    yes        │
+      │     │                │             │              │             │         │
+      └─────┼────────────────┼─────────────┼──────────────┼─────────────┼─────────┘
+            │ recall         │ prompt      │ 5 tools      │ lesson      ▼
+            ▼                ▼             ▼              ▼        best draft
+       ┌─────────────────────────┐   ┌──────────────┐  ┌────────┐  + trace.jsonl
+       │  MEMORY (one .db file)  │   │ score_rubric │  │ MEMORY │  + summary.json
+       │  episodic │ lesson │    │◀──│ revise_text  │  │ write  │
+       │  profile  │            │   │ analyze_text │  └────────┘
+       │  sqlite-vec + FTS5     │   │ diff_drafts  │
+       └─────────────────────────┘   │ finalize     │
+                                     └──────────────┘
+                                      2 of 5 use no LLM
 ```
+
+Read it in three layers. The **middle row** is the loop the challenge asks for. **Below** it are the
+two things the loop reaches for: memory (read in Perceive, written after Reflect) and the tool set
+(dispatched by Act). **Above** it is the harness, which the loop never sees — it substitutes
+decorated versions of the loop's own collaborators before the run starts.
 
 | Step | LLM? | Responsibility |
 |---|---|---|
@@ -61,6 +100,44 @@ Groq, for example, rejects `messages[].name` (declared as `supports_message_name
 `temperature=0` to `1e-8`.
 
 **Total running cost: $0.** Every dependency is OSS and every provider option has a free path.
+
+### LLM choice and rationale
+
+**GroqCloud running `openai/gpt-oss-120b`**, with local Ollama as the failover and a deterministic
+mock for tests and offline demos.
+
+*Why an OpenAI-compatible endpoint rather than a vendor SDK.* This project's LLM layer exists to map
+provider HTTP outcomes onto **one** error taxonomy — retryable / terminal / parse / unavailable —
+because that taxonomy is what keeps the retry decorator a dozen lines. Going through three vendor
+SDKs would mean re-deriving that mapping from three different exception trees. One ~270-line `httpx`
+client covers Groq, Ollama, OpenAI and OpenRouter, and swapping between them is a config edit.
+
+*Why Groq specifically.*
+
+- **A genuinely free tier that supports tool calling.** The whole loop rests on forced tool use; a
+  provider without it would need prompt-and-parse, and half the reliability work would become
+  parsing work.
+- **Fast.** A rubric loop makes ~3 calls per iteration and 5–6 iterations per run. Latency compounds,
+  and a demo that takes eight minutes is a demo nobody watches.
+- **`gpt-oss-120b` is a large open-weights model.** If Groq disappears, the same model runs on
+  Ollama, Together or a local box — the config already names the fallback. Betting the project on a
+  proprietary model would make the provider chain decorative.
+
+*What that choice actually cost, measured.* Groq's free tier rate-limits hard. A single live
+five-iteration run returned **HTTP 429 fifteen times**, and the run took 170 seconds of which 139
+were honoured `Retry-After` backoff. That is not a complaint — it is why
+[`harness/retry.py`](src/agentic_rubric/harness/retry.py) exists and how it got tested for real
+rather than only against injected faults.
+
+*Two provider quirks, handled as config rather than as code.*
+
+| Quirk | How it is handled |
+|---|---|
+| Groq rejects `messages[].name` | `supports_message_name: false` — the client strips the field |
+| Groq converts `temperature=0` to `1e-8` | Documented in `config.yaml`; the judge is *near*-deterministic, not deterministic, and the loop steers on differences between two scores |
+| `gpt-oss` spends output tokens on internal reasoning **before** emitting content | Found live: a tight `max_tokens` returns HTTP 200 with an empty body. The client now raises a typed parse error naming `llm.max_tokens`; the default was raised to 4096 |
+
+The client never branches on a provider name. Every difference is a declared capability flag.
 
 ---
 
@@ -217,9 +294,10 @@ The memory demonstration in one sequence:
 
 ## Harness
 
-Retry, fallbacks, guardrails and observability wrap the loop **without touching it**. `core/`
-contains no `try`/`except` at all: the harness substitutes decorated versions of the loop's own
-collaborators before it starts.
+Retry, fallbacks, guardrails and observability wrap the loop **without touching it**: the harness
+substitutes decorated versions of the loop's own collaborators before it starts. **No retry,
+backoff, jitter, failover, budget or timeout logic exists anywhere in `core/`** — `core/loop.py`
+has exactly one `except`, and it guards a memory write.
 
 | Area | Defence |
 |---|---|
@@ -255,6 +333,35 @@ budget  : 30,092 / 200,000 tokens (15%)
 ```
 
 Full write-up in [docs/03_harness_design.md](docs/03_harness_design.md).
+
+---
+
+## Testing and quality
+
+```bash
+pytest -q                                        # 303 tests, ~9s, no key, no network
+pytest --cov=agentic_rubric --cov-report=term    # 91% line coverage
+ruff check src tests scripts                     # zero findings
+mypy                                             # disallow_untyped_defs, clean
+```
+
+| Suite | Tests | Covers |
+|---|---|---|
+| `test_harness` | 58 | Backoff bounds, jitter spread, each fallback rung, budget, stuck detection |
+| `test_llm_layer` | 42 | Status→error mapping, JSON salvage, truncated completions |
+| `test_tools` | 39 | Schema generation, validation, dispatch containment, handler contracts |
+| `test_memory` | 31 | Round-trip, session isolation, `clear_session`, BM25 fallback, cross-session lessons |
+| `test_loop` | 30 | Each step in isolation, the feedback edge, end-to-end with a rising score |
+| `test_cli` | 30 | Override precedence, exit codes, memory commands, trace output |
+| `test_render` | 26 | Every event the demo transcript shows, including harness recovery |
+| `test_config` | 12 | Four-layer precedence, unknown-key rejection, type coercion |
+| `test_rubric` | 19 | Weight validation, headroom maths, YAML loading |
+| `test_web` | 16 | The browser demo's endpoints |
+
+Every test runs against `MockProvider` with injected sleeps, so backoff bounds are asserted in
+milliseconds rather than waited through. [CI](.github/workflows/ci.yml) runs lint, types, the suite
+on Python 3.10 **and** 3.12, an end-to-end demo including all seven injected failures, and a Docker
+build — with **no secrets configured**.
 
 ---
 
@@ -307,6 +414,8 @@ docker-compose.yml
 | [docs/01_patterns_research.md](docs/01_patterns_research.md) | ReAct, Reflexion, CoT, Tree of Thoughts, LATS — mechanisms, costs, and which are applied here |
 | [docs/02_memory_design.md](docs/02_memory_design.md) | Backend choice, schema, scope policy, and the A/B transcript |
 | [docs/03_harness_design.md](docs/03_harness_design.md) | Each engineering decision paired with the failure mode it defends against |
+| [docs/04_demo_script.md](docs/04_demo_script.md) | Shot-by-shot script for the demo video, with commands and timings |
+| [docs/solution_evidence.md](docs/solution_evidence.md) | Every verified number and reference, gathered for the solution write-up |
 | [docs/demos/](docs/demos/) | Captured run transcripts, including injected failures |
 
 ---

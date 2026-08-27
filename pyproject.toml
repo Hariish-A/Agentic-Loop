@@ -38,8 +38,19 @@ target-version = "py310"
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.mypy]
-python_version = "3.10"
+# No `python_version` pin: mypy then checks against the interpreter running it.
+# Pinning 3.10 here made mypy parse numpy's 3.12-syntax stubs as 3.10 and abort.
+# Real 3.10 compatibility is verified where it actually counts -- the CI matrix
+# runs the whole suite on 3.10 -- and `ruff --target-version py310` catches the
+# syntax-level regressions statically.
 packages = ["agentic_rubric"]
 mypy_path = "src"
 warn_unused_ignores = true
 disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+# Third-party packages that ship no type information. Listed one by one rather
+# than with a blanket `ignore_missing_imports`, so a new untyped dependency is a
+# deliberate entry here instead of a silent hole.
+module = ["sqlite_vec.*", "fastembed.*"]
+ignore_missing_imports = true

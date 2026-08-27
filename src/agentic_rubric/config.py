@@ -93,9 +93,9 @@ class LLMConfig:
     @property
     def chain(self) -> list[str]:
         """Provider names in the order the harness should try them."""
-        ordered = [self.primary, *self.fallbacks]
-        seen: set[str] = set()
-        return [n for n in ordered if not (n in seen or seen.add(n))]
+        # dict.fromkeys preserves insertion order and drops duplicates, which
+        # is exactly "the chain, without repeating a provider named twice".
+        return list(dict.fromkeys([self.primary, *self.fallbacks]))
 
     def provider(self, name: str) -> LLMProviderConfig:
         try:

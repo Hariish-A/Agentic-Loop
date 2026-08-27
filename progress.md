@@ -59,8 +59,9 @@ Artifacts: `docs/demos/m3_live_groq_run.txt`, `m3_live_groq_trace.jsonl`, `m3_li
 
 ### The design decision everything else follows from
 
-**`core/` contains no `try`/`except` at all.** The harness attaches through two new seams on
-`AgenticLoop`, both defaulting to "no harness" — **eleven lines** in `core/loop.py`:
+**No retry, backoff, failover, budget or timeout logic exists anywhere in `core/`.** The harness
+attaches through two new seams on `AgenticLoop`, both defaulting to "no harness" --
+**five lines inside `run()`** -- a stop check at each iteration boundary, and `act(...)` becoming `self._act(...)` -- plus three short helpers and a `Protocol` declaration:
 
 | Collaborator | Default | What the runner substitutes |
 |---|---|---|

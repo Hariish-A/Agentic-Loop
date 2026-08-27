@@ -51,8 +51,16 @@ def build_recall_query(state: LoopState) -> str:
     elif not state.workspace.scorecard_history:
         parts.append("initial scoring")
 
+    # Case-insensitive dedupe that keeps the first spelling seen: the rubric
+    # name and a criterion name can differ only in case, and repeating a term
+    # in the query skews the keyword channel's ranking towards it.
     seen: set[str] = set()
-    unique = [p for p in parts if not (p.lower() in seen or seen.add(p.lower()))]
+    unique: list[str] = []
+    for part in parts:
+        key = part.lower()
+        if key not in seen:
+            seen.add(key)
+            unique.append(part)
     return " ".join(unique)
 
 
