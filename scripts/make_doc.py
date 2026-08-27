@@ -9,9 +9,9 @@ more here than a "real" binary ``.doc``: python-docx cannot write the legacy
 binary format at all, and the toolchains that can (LibreOffice, a GTK stack for
 WeasyPrint) are a heavy dependency to add for one deliverable.
 
-The stylesheet is print-oriented rather than screen-oriented -- serif body,
-tables with visible rules, page-break control on headings -- because the first
-thing anyone does with a .doc is print it or export it to PDF.
+The stylesheet is print-oriented rather than screen-oriented, and monochrome
+throughout, because the first thing anyone does with a .doc is print it or
+export it to PDF.
 """
 
 from __future__ import annotations
@@ -23,36 +23,34 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# Word maps CSS conservatively. Everything here is deliberately basic: point
-# sizes rather than rem, explicit table borders rather than border-collapse
-# tricks, and no flexbox or grid anywhere.
+# Word maps CSS conservatively, so everything here is deliberately basic:
+# point sizes rather than rem, no flexbox, no grid. Black text throughout --
+# a document that prints identically in colour and greyscale is one fewer thing
+# to check before handing it over.
 STYLESHEET = """
-  @page { size: A4; margin: 2cm; }
-  body { font-family: Georgia, 'Times New Roman', serif; font-size: 10.5pt;
-         line-height: 1.45; color: #1a1a1a; }
-  h1 { font-size: 20pt; border-bottom: 2px solid #444; padding-bottom: 4pt;
-       margin-top: 22pt; page-break-before: always; }
-  h1:first-of-type { page-break-before: avoid; }
-  h2 { font-size: 15pt; margin-top: 18pt; color: #14304f; }
-  h3 { font-size: 12.5pt; margin-top: 14pt; color: #14304f; }
-  h4 { font-size: 11pt; margin-top: 12pt; }
-  h1, h2, h3, h4 { page-break-after: avoid; font-family: Calibri, Arial, sans-serif; }
-  p, li { orphans: 2; widows: 2; }
-  code { font-family: Consolas, 'Courier New', monospace; font-size: 9pt;
-         background: #f2f2f2; padding: 0 2pt; }
-  pre { font-family: Consolas, 'Courier New', monospace; font-size: 8.5pt;
-        background: #f6f6f6; border: 1px solid #d8d8d8; padding: 7pt;
-        line-height: 1.3; page-break-inside: avoid; white-space: pre-wrap; }
-  pre code { background: none; padding: 0; font-size: 8.5pt; }
-  table { border-collapse: collapse; width: 100%; margin: 10pt 0;
-          font-size: 9.5pt; font-family: Calibri, Arial, sans-serif; }
-  th, td { border: 1px solid #b0b0b0; padding: 4pt 6pt; text-align: left;
-           vertical-align: top; }
-  th { background: #eaeef2; font-weight: bold; }
-  blockquote { border-left: 3px solid #b0b0b0; margin-left: 0; padding-left: 10pt;
-               color: #444; font-style: italic; }
-  hr { border: none; border-top: 1px solid #c8c8c8; margin: 14pt 0; }
-  a { color: #14304f; }
+  @page { size: A4; margin: 2.2cm; }
+  body { font-family: Calibri, Arial, sans-serif; font-size: 11pt;
+         line-height: 1.45; color: #000000; }
+  h1 { font-size: 17pt; margin-top: 0; margin-bottom: 14pt; color: #000000; }
+  h2 { font-size: 14pt; margin-top: 20pt; margin-bottom: 6pt; color: #000000;
+       page-break-before: always; }
+  h2:first-of-type { page-break-before: avoid; }
+  h3 { font-size: 12pt; margin-top: 14pt; margin-bottom: 4pt; color: #000000; }
+  h4 { font-size: 11pt; margin-top: 11pt; color: #000000; }
+  h1, h2, h3, h4 { page-break-after: avoid; }
+  p, li { orphans: 2; widows: 2; color: #000000; }
+  ul { margin-top: 4pt; margin-bottom: 8pt; }
+  li { margin-bottom: 4pt; }
+  strong { font-weight: bold; }
+  code { font-family: Consolas, 'Courier New', monospace; font-size: 10pt;
+         color: #000000; }
+  pre { font-family: Consolas, 'Courier New', monospace; font-size: 9.5pt;
+        color: #000000; line-height: 1.3; page-break-inside: avoid;
+        white-space: pre-wrap; margin-left: 12pt; }
+  blockquote { margin-left: 18pt; margin-right: 18pt; font-style: italic;
+               color: #000000; }
+  hr { border: none; border-top: 1px solid #000000; margin: 14pt 0; }
+  a { color: #000000; text-decoration: none; }
 """
 
 TEMPLATE = """<html xmlns:o="urn:schemas-microsoft-com:office:office"

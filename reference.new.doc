@@ -1,0 +1,419 @@
+﻿<html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:w="urn:schemas-microsoft-com:office:word"
+      xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta charset="utf-8">
+<meta name="ProgId" content="Word.Document">
+<meta name="Generator" content="Microsoft Word">
+<title>Agentic Rubric Loop — Milestone Notes</title>
+<style>
+  @page { size: A4; margin: 2.2cm; }
+  body { font-family: Calibri, Arial, sans-serif; font-size: 11pt;
+         line-height: 1.45; color: #000000; }
+  h1 { font-size: 17pt; margin-top: 0; margin-bottom: 14pt; color: #000000; }
+  h2 { font-size: 14pt; margin-top: 20pt; margin-bottom: 6pt; color: #000000;
+       page-break-before: always; }
+  h2:first-of-type { page-break-before: avoid; }
+  h3 { font-size: 12pt; margin-top: 14pt; margin-bottom: 4pt; color: #000000; }
+  h4 { font-size: 11pt; margin-top: 11pt; color: #000000; }
+  h1, h2, h3, h4 { page-break-after: avoid; }
+  p, li { orphans: 2; widows: 2; color: #000000; }
+  ul { margin-top: 4pt; margin-bottom: 8pt; }
+  li { margin-bottom: 4pt; }
+  strong { font-weight: bold; }
+  code { font-family: Consolas, 'Courier New', monospace; font-size: 10pt;
+         color: #000000; }
+  pre { font-family: Consolas, 'Courier New', monospace; font-size: 9.5pt;
+        color: #000000; line-height: 1.3; page-break-inside: avoid;
+        white-space: pre-wrap; margin-left: 12pt; }
+  blockquote { margin-left: 18pt; margin-right: 18pt; font-style: italic;
+               color: #000000; }
+  hr { border: none; border-top: 1px solid #000000; margin: 14pt 0; }
+  a { color: #000000; text-decoration: none; }
+</style>
+</head>
+<body>
+<h1 id="agentic-rubric-loop-milestone-notes">Agentic Rubric Loop — Milestone Notes</h1>
+<p>Use case: score text against a rubric and improve it.</p>
+<hr>
+<h2 id="milestone-1-agentic-reasoning-patterns">Milestone 1 — Agentic Reasoning Patterns</h2>
+<h3 id="react">ReAct</h3>
+<ul>
+<li>Thinking and doing are interleaved. The model writes a short thought, picks an action, and gets
+  an observation back from the environment before it thinks again.</li>
+<li>That observation comes from outside the model. It can therefore contradict whatever the model had
+  talked itself into, which is the entire reason the pattern works.</li>
+<li>A trace looks like this: <em>Thought</em> — I do not know how good this draft is. <em>Action</em> —
+  score it. <em>Observation</em> — 28.7%, weakest on thesis and evidence. <em>Thought</em> — those two carry the
+  most weight, so edit there.</li>
+<li>Cost is low. One model call per decision, plus whatever the tool itself costs.</li>
+<li>The weakness is that ReAct never backtracks. A bad action at step three stays in the trajectory
+  forever, and the agent can only reason forward from the mess it made.</li>
+</ul>
+<h3 id="reflexion">Reflexion</h3>
+<ul>
+<li>Three parts sit around an acting loop: an actor that produces the trajectory, an evaluator that
+  scores it, and a self-reflection step that turns that score into plain-language feedback about
+  what went wrong.</li>
+<li>The reflection gets written to memory. On the next attempt it is pasted back into the prompt.</li>
+<li>No weights change. Only the prompt changes, which is why the paper calls it verbal reinforcement
+  learning rather than fine-tuning.</li>
+<li>It is cheap. One extra call per episode buys a genuine improvement across attempts.</li>
+<li>Everything depends on the evaluator. Feed Reflexion a sycophantic judge and it will faithfully
+  learn the wrong lesson, then carry that lesson into every future run.</li>
+</ul>
+<h3 id="chain-of-thought">Chain-of-Thought</h3>
+<ul>
+<li>Ask the model to write out intermediate steps before committing to an answer.</li>
+<li>Mechanically it buys more forward passes on a hard problem, and it makes the final answer depend
+  on explicit intermediate results instead of one leap.</li>
+<li>This is a prompting technique, not an agent architecture. There are no actions, no environment
+  and no memory in it. It layers underneath everything else.</li>
+<li>The failure mode is post-hoc rationalisation. Once a model has settled on an answer it will
+  happily generate a chain that justifies it, which matters enormously if the thing you are asking
+  it to produce is a score.</li>
+</ul>
+<h3 id="tree-of-thoughts">Tree of Thoughts</h3>
+<ul>
+<li>Instead of one chain, build a tree. Generate several candidate next steps, have the model score
+  each one, expand the promising branches and prune the rest.</li>
+<li>Backtracking is possible here, which is the capability a chain structurally cannot have.</li>
+<li>On tasks like Game of 24 the difference is dramatic, because solving those problems genuinely
+  requires trying a path and abandoning it.</li>
+<li>It is expensive. Branching multiplied by depth, plus an evaluation call at every node.</li>
+<li>Two conditions have to hold before it pays off: several plausible moves must exist at each step,
+  and there has to be a cheap way of telling them apart. Without both, you spend ten times the
+  tokens rediscovering the obvious answer.</li>
+</ul>
+<h3 id="lats">LATS</h3>
+<ul>
+<li>Monte Carlo Tree Search laid over ReAct trajectories, with Reflexion supplying the signal that
+  gets propagated back up the tree.</li>
+<li>Each node is a state reached by some sequence of thoughts and actions. Selection uses UCT,
+  expansion samples candidate actions from the model, simulation runs those actions for real, and
+  failures produce a written reflection stored for later expansions of that subtree.</li>
+<li>Because the actions are executed against a real environment, node values are grounded rather than
+  imagined.</li>
+<li>It is the most capable of the five and by far the most expensive — tens to hundreds of calls for
+  a single problem.</li>
+<li>One assumption is easy to miss: MCTS needs an environment it can reset. Explore a branch, throw
+  it away, return to the parent state.</li>
+</ul>
+<hr>
+<h2 id="milestone-1-patterns-applied-and-why">Milestone 1 — Patterns Applied, and Why</h2>
+<h3 id="what-the-use-case-gives-us">What the use case gives us</h3>
+<ul>
+<li>Scoring a draft costs one model call and returns a number. That single fact decided most of the
+  design.</li>
+<li>Patterns split into two groups. Some need a real external signal — ReAct, Reflexion, LATS.
+  Others substitute reasoning where no signal exists, which is what CoT and Tree of Thoughts are
+  for.</li>
+<li>We had a real signal. Paying for a pattern that simulates one would mean trusting the model's
+  opinion of its own work when a measurement was sitting right there.</li>
+</ul>
+<h3 id="react-is-the-backbone">ReAct is the backbone</h3>
+<ul>
+<li>The four steps are ReAct with the phases named and pulled apart. Perceive structures the world,
+  Reason produces the Thought and the Action, Act executes it, and the tool result is the
+  Observation.</li>
+<li>The rubric score is a genuine external observation. When the judge comes back with 28.7% and
+  evidence at 2 out of 5, that is a measurement the agent has to accept.</li>
+<li>Previous thought/action/observation triples are replayed into the prompt as a scratchpad, so a
+  strategy the agent already tried shows up as a repeat rather than a fresh idea.</li>
+<li>One implementation detail is worth defending. The <code>thought</code> field is a required property on every
+  tool schema instead of being scraped out of the assistant's free text. Several providers return
+  empty content alongside a tool call, and scraping would have quietly reduced ReAct to plain
+  action-selection whenever the provider felt like it.</li>
+</ul>
+<h3 id="reflexion-is-how-the-agent-learns">Reflexion is how the agent learns</h3>
+<ul>
+<li>The mapping is one to one. Our actor is Perceive → Reason → Act. Our evaluator is the rubric
+  judge. Our self-reflection is the LLM half of the Reflect step, and our episodic buffer is the
+  memory module.</li>
+<li>Reflect is asked for a <em>transferable</em> lesson. "The second paragraph needed a source" is useless
+  next session. "Unattributed statistics score no better than no statistics" is worth keeping
+  forever.</li>
+<li>An empty lesson is accepted as an honest answer. A vague one like "be more specific" would
+  pollute every future run, so we would rather store nothing.</li>
+<li>We deviate from the paper deliberately in one place. In Reflexion the actor's own judgement can
+  end an episode. Here it cannot. Completion is computed from the numbers, and the model's opinion
+  is recorded but only ever counts as one input to the plateau rule. An agent allowed to declare
+  its own success will do exactly that, right at the point where the remaining work gets hard.</li>
+</ul>
+<h3 id="chain-of-thought-used-narrowly">Chain-of-Thought, used narrowly</h3>
+<ul>
+<li>The judge's output schema orders each criterion as <code>evidence</code>, then <code>justification</code>, then
+  <code>score</code>. Models fill JSON in schema order, so the quote and the argument get generated before the
+  number.</li>
+<li>Swap those two fields and you get the post-hoc rationalisation problem. For a grader that is
+  fatal. The loop steers on the difference between two scores, and a judge that drifts is
+  indistinguishable from real progress.</li>
+<li>The judge also runs at temperature 0 for the same reason. Sampling noise in a measuring
+  instrument reads as improvement.</li>
+<li>In the reasoning step, the <code>thought</code> field forces the agent to say why this action and why now
+  before it names the action.</li>
+</ul>
+<h3 id="tree-of-thoughts-one-level-deep-and-off-by-default">Tree of Thoughts, one level deep and off by default</h3>
+<ul>
+<li>Setting <code>revise_candidates</code> above 1 makes the reviser generate several drafts at different
+  temperatures, score each with the judge, and keep the winner.</li>
+<li>That is a genuine one-level search tree with value-based pruning. Generator, evaluator, selection.
+  No backtracking and no lookahead, and the documentation says so rather than dressing it up.</li>
+<li>Going deeper does not work here. Text revision has no meaningful intermediate state to branch on.
+  A partial arithmetic expression is a node you can score; half a rewritten paragraph is not.</li>
+<li>It defaults to off because it roughly triples the token cost of an iteration for a modest gain.
+  Exposing it as configuration puts that trade-off where it belongs, with whoever is running it.</li>
+</ul>
+<h3 id="lats-rejected">LATS, rejected</h3>
+<ul>
+<li>The environment does not reset. Our state is a document being progressively rewritten, and there
+  is no cheap way to undo that. Simulating a reset means keeping every intermediate draft and
+  re-scoring on each backtrack, which is most of the cost of the search before any searching has
+  happened.</li>
+<li>The branching factor is too small to justify the machinery. There are five tools, and at any
+  given moment one or two make sense. If the draft is unscored, score it. If it is scored, revise
+  the criterion with the most headroom.</li>
+<li>The economics are wrong. Hundreds of calls per problem against a free tier is not a pattern you
+  have implemented, it is a pattern you have described.</li>
+<li>It would be the right choice if the rubric were adversarial — if improving evidence reliably
+  damaged clarity, so the best path required accepting a loss first. Ours are close to separable.</li>
+</ul>
+<hr>
+<h2 id="milestone-2-memory">Milestone 2 — Memory</h2>
+<h3 id="why-the-backend-is-sqlite">Why the backend is SQLite</h3>
+<ul>
+<li>Everything lives in one file. Records, the keyword index and the vectors all sit in
+  <code>data/memory.db</code>, kept in sync by triggers.</li>
+<li>That was the deciding factor over Chroma, Qdrant or LanceDB. Two separate stores can disagree
+  about what the agent remembers, and when they do the failure is silent — retrieval returns a
+  vector id whose record was deleted, and nothing complains.</li>
+<li>One file also means one Docker volume, one backup, and one thing to delete when a demo needs a
+  clean slate.</li>
+<li>It works offline. No service call at recall time, so a throttled free tier cannot break a
+  demonstration.</li>
+<li><code>sqlite3</code> is in the standard library. The vector half is <code>sqlite-vec</code>, a small loadable
+  extension, and when it will not load the whole thing degrades to FTS5 keyword search over the
+  same rows in the same file.</li>
+</ul>
+<h3 id="why-fastembed-not-sentence-transformers">Why fastembed, not sentence-transformers</h3>
+<ul>
+<li>Quality is comparable at this scale. We are embedding a few hundred short strings, not a corpus.</li>
+<li><code>sentence-transformers</code> drags in PyTorch. That takes the container image from roughly 400 MB to
+  roughly 2.5 GB.</li>
+<li><code>fastembed</code> runs ONNX on CPU. The model is <code>BAAI/bge-small-en-v1.5</code> at 384 dimensions, about
+  130 MB on disk.</li>
+</ul>
+<h3 id="how-memory-is-structured">How memory is structured</h3>
+<p>Three tiers with three different lifetimes:</p>
+<ul>
+<li><strong>Episodic</strong> — what happened in one iteration of one session. Scoped to that session and useless
+  outside it. Example: <em>iteration 2: revise_text, 202 to 243 words, similarity 0.95</em>.</li>
+<li><strong>Lesson</strong> — a transferable finding produced by Reflect. Scoped to the rubric, but recalled
+  across every session. This is the Reflexion payload and the reason memory exists at all.</li>
+<li><strong>Profile</strong> — standing constraints for a rubric, such as tone or a target score.</li>
+</ul>
+<p>Every row carries <code>kind</code>, <code>content</code>, a normalised content hash, <code>session_id</code>, <code>iteration</code>,
+<code>rubric_id</code>, <code>criterion_id</code>, a <code>score_delta</code>, timestamps, and a <code>hits</code> counter.</p>
+<p>Alongside the table sit two indexes. FTS5 handles keyword search; a <code>vec0</code> virtual table holds the
+384-dimension embeddings with cosine distance. Triggers keep both in step with inserts, updates and
+deletes, so the indexes cannot drift away from the rows they describe.</p>
+<h3 id="the-policy-decisions-that-actually-matter">The policy decisions that actually matter</h3>
+<ul>
+<li><strong>The recall query describes the problem, not the text.</strong> It is built from the rubric name and
+  the criteria with the most headroom, never from the draft. Query with the essay and you retrieve
+  memories about similar essays. Query with the problem and you retrieve memories about how to
+  solve it, which is what the next decision needs.</li>
+<li><strong>Lessons are scoped to their rubric, not global.</strong> Something learned about attributing
+  statistics in essays is not evidence about bug reports. Recalling it there is worse than
+  recalling nothing, because it spends prompt budget arguing for an irrelevant edit.</li>
+<li><strong>Lessons are ranked but not relevance-gated. Episodic records are.</strong> This is the most
+  consequential call in the module. Episodic memory is voluminous and noisy, so it has to clear a
+  similarity threshold. Lessons are the opposite — a handful per rubric, each already filtered by
+  Reflect deciding it was worth keeping. Gate them on cosine similarity and you throw away the
+  point of Reflexion the first time somebody phrases a query differently. They are capped at three
+  and always offered.</li>
+<li><strong>The keyword channel is ordinal, not calibrated, and says so.</strong> BM25 magnitudes depend on corpus
+  size. On a ten-row table they come back around 1e-6. Squashing that into something that looks
+  like a probability would produce a number that appears absolute and is not, and the relevance
+  gate would then silently reject everything. Keyword hits therefore score by rank, and in
+  keyword-only mode the gate is skipped rather than applied to a fake number.</li>
+<li><strong>A relearned lesson increments a counter rather than duplicating.</strong> A finding rediscovered
+  independently in a later session is better evidence than a one-off, so <code>hits</code> feeds a small
+  ranking boost. Episodic records never deduplicate, because two identical events in two sessions
+  are two facts.</li>
+</ul>
+<h3 id="reading-and-writing">Reading and writing</h3>
+<ul>
+<li>Memory is read once at the start of every Perceive and written after every Reflect.</li>
+<li>Reading in Perceive rather than inside Reason means recall happens exactly once per iteration,
+  shows up in the observation, and can fail without the reasoning step ever knowing.</li>
+<li>Two records get written per iteration: an episodic one always, and a lesson only when Reflect
+  produced something worth keeping.</li>
+</ul>
+<h3 id="a-concrete-example-of-memory-changing-the-output">A concrete example of memory changing the output</h3>
+<p>Same input, same target, same rubric. Three runs:</p>
+<ul>
+<li><strong>Run A</strong> — memory on, cold store. Six iterations. Sequence: score, analyze_text, revise, score,
+  revise, score.</li>
+<li><strong>Run B</strong> — memory on, warm store, <strong>a different session id</strong>. Five iterations. Sequence: score,
+  revise, score, revise, score.</li>
+<li><strong>Run C</strong> — memory off, the control. Six iterations. Identical to A, action for action.</li>
+</ul>
+<p>Run A wrote two lessons before it finished. One of them:</p>
+<blockquote>
+<p>On this rubric, targeting the two highest-weighted criteria first moves the total faster than
+fixing the lowest raw score.</p>
+</blockquote>
+<p>Look at iteration 2 in each run.</p>
+<ul>
+<li><strong>A had nothing recalled.</strong> Its thought: <em>"No prior experience with this rubric was recalled.
+  Measure the draft directly before spending a revision on a guess."</em> It spent the turn on
+  <code>analyze_text</code>.</li>
+<li><strong>B recalled the lesson above.</strong> Its thought: <em>"Memory says: On this rubric, targeting the two
+  highest-weighted criteria first moves the total faster than fixing the lowest raw score. Applying
+  that directly rather than rediscovering it."</em> It went straight to <code>revise_text</code>.</li>
+</ul>
+<p>One whole iteration saved, and the lesson reached the run by two separate paths — it appeared in
+the Reason prompt under a <code>RECALLED FROM MEMORY</code> heading, and it was passed through to the reviser
+as an <code>apply_lessons</code> argument so it influenced the rewrite itself.</p>
+<p>The reason run C matters is that A and C behaving identically is the control. A cold store carries
+exactly as much information as no store, so they had better produce the same actions. Without that
+check, "memory helped" could just as easily mean "the second run of anything is faster".</p>
+<hr>
+<h2 id="milestone-3-engineering-decisions-and-the-failures-they-defend-against">Milestone 3 — Engineering Decisions and the Failures They Defend Against</h2>
+<h3 id="where-the-harness-attaches">Where the harness attaches</h3>
+<ul>
+<li><strong>Decision:</strong> the harness reaches the loop through exactly two seams — a controller that may stop
+  a run at an iteration boundary, and a substitutable Act function.</li>
+<li><strong>Defends against:</strong> infrastructure quietly becoming a fifth cognitive step. The controller
+  protocol is deliberately narrow. It can stop the run and annotate it, and it cannot choose an
+  action, edit the draft or change a score.</li>
+<li>There is no retry, backoff, jitter, failover, budget or timeout logic anywhere in <code>core/</code>. Both
+  seams default to "no harness", so the loop still runs standalone and still reads as four steps.</li>
+</ul>
+<h3 id="retry">Retry</h3>
+<ul>
+<li><strong>Decision:</strong> exponential backoff with full jitter, an attempt cap, and <code>Retry-After</code> preferred
+  over our computed delay but capped at 60 seconds.</li>
+<li><strong>Defends against:</strong> rate limits, timeouts and transient 5xx responses. Also against
+  synchronised retry storms, which is what the jitter is for.</li>
+<li><strong>Decision:</strong> separate policies for transport and for tools. Four attempts at a 1-second base for
+  the LLM; two attempts at 0.25 seconds for tool calls.</li>
+<li><strong>Defends against:</strong> treating an API rate limit and a malformed tool argument as the same kind of
+  problem. They deserve very different amounts of patience.</li>
+<li><strong>Decision:</strong> the error taxonomy is split by what the caller should do, not by status code.
+  Retryable, terminal, unparseable, unavailable.</li>
+<li><strong>Defends against:</strong> a retry loop that hammers a provider over a bad API key. It also keeps the
+  retry decorator small, because "back off" and "fail over" become genuinely different code paths
+  instead of one function with a flag.</li>
+</ul>
+<p>Live evidence: a single five-iteration run on Groq's free tier absorbed fifteen HTTP 429s, honoured
+every <code>Retry-After</code>, and still finished at target. Backoff accounted for 139 seconds of a
+170-second run.</p>
+<h3 id="fallbacks">Fallbacks</h3>
+<ul>
+<li><strong>Unparseable model output.</strong> Forced tool schemas first, then local JSON salvage, then one repair
+  call, then a safe read-only default action flagged as degraded. <em>Defends against:</em> a run dying
+  because a provider returned prose where a tool call was required. The fallback deliberately never
+  picks an action that rewrites the user's text — a decision we do not fully understand is not one
+  that should be allowed to edit anything.</li>
+<li><strong>Failed tool call.</strong> The failure comes back as a normal result object with <code>ok=False</code> and goes
+  into the next observation. Then a sanitised retry that drops the arguments the schema rejected,
+  then an alternative tool. <em>Defends against:</em> one bad argument ending a run. A broken tool call is
+  data the agent can react to, not an exception.</li>
+<li><strong>Hitting the iteration cap.</strong> Return the best-scoring draft ever seen, with a status that says
+  what happened. <em>Defends against:</em> handing back text that is worse than the input. Revisions can
+  make things worse, and an improvement agent that returns something worse than what it was given
+  has failed at its only job.</li>
+<li><strong>Memory read failure.</strong> A circuit breaker counts consecutive failures per operation and swaps in
+  a no-op store once it trips. The run continues and reports itself as degraded. <em>Defends against:</em>
+  paying the latency of a failing read on every single iteration, forever.</li>
+<li><strong>Token budget exhausted.</strong> Warn at 80%, then force a graceful finalize. <em>Defends against:</em>
+  burning a quota to no purpose and returning nothing for it.</li>
+<li><strong>Provider unavailable.</strong> Walk the chain — Gemini, then Groq, then a local Ollama — and stick
+  with whichever link answers. <em>Defends against:</em> one vendor's outage taking the whole run down.</li>
+</ul>
+<p>Two distinctions in that ladder are worth pointing out. A 400 is raised, but a 404 fails over: a
+malformed request will be malformed everywhere, whereas a missing model is only missing on that one
+provider. Auth rejection also fails over rather than aborting, for the same reason.</p>
+<h3 id="observability">Observability</h3>
+<ul>
+<li><strong>Decision:</strong> every step of every iteration emits a structured event, written to
+  <code>runs/&lt;run_id&gt;/trace.jsonl</code> as one JSON object per line and flushed per line.</li>
+<li><strong>Defends against:</strong> losing the evidence when a run is killed. Flushing per line means a
+  terminated process still leaves everything up to the moment it died.</li>
+<li><strong>Decision:</strong> the same event stream drives the console renderer and the browser UI.</li>
+<li><strong>Defends against:</strong> what you watch on screen drifting away from what the trace recorded. There
+  is one source, so they cannot disagree.</li>
+<li><strong>Decision:</strong> redaction happens in the log formatter, matching key names <em>and</em> value patterns.</li>
+<li><strong>Defends against:</strong> a secret leaking because somebody logged it under a key nobody thought to
+  add to the blocklist.</li>
+<li>Each event carries run id, session id, iteration, step, timing, token counts, a cost estimate and
+  any error.</li>
+</ul>
+<h3 id="guardrails">Guardrails</h3>
+<ul>
+<li><strong>Hard iteration cap.</strong> Enforced in Python by the loop, never delegated to a prompt. <em>Defends
+  against:</em> an agent that talks itself into one more turn, indefinitely.</li>
+<li><strong>Token budget.</strong> Tracked across every call in a run, with a warning threshold before the stop.
+  <em>Defends against:</em> an unattended run quietly consuming a day's quota.</li>
+<li><strong>Wall-clock deadline.</strong> Checked at iteration boundaries. <em>Defends against:</em> a run that is not
+  looping but is simply never going to finish.</li>
+<li><strong>Stuck detection, three signals.</strong> The same action with the same arguments twice in a row, a
+  draft that cycles A to B and back to A, or a score frozen across a window. <em>Defends against:</em> the
+  agent burning its whole budget repeating one thing. This is not hypothetical — an early bug made
+  every tool call fail identically, and the loop ran all six iterations and returned cleanly
+  without noticing.</li>
+<li>Every stop is graceful. Status, reason, best draft, full trace. Never an exception.</li>
+</ul>
+<h3 id="the-admission-gate">The admission gate</h3>
+<ul>
+<li><strong>Decision:</strong> check the submission against rubric-declared word and sentence floors before the
+  loop starts, with no model call at all.</li>
+<li><strong>Defends against:</strong> the worst failure this system had. Given the input "hi, good morning", the
+  agent scored a three-word greeting as an essay, expanded it into 170 words with zero similarity
+  to the input, scored its own invention at 85%, and reported success. Roughly 17,000 tokens went
+  into fabricating a document the user never wrote.</li>
+<li>A refusal is a verdict rather than an error. It carries a run id, a reason written for a person,
+  and the original text handed back untouched.</li>
+<li>The gate is deterministic on purpose. Asking a model whether something is gradeable costs a call,
+  can be wrong, and can be argued out of its answer by the next prompt. Word counts cannot.</li>
+</ul>
+<h3 id="the-reviser-guards">The reviser guards</h3>
+<ul>
+<li><strong>Decision:</strong> four checks on every candidate revision — too short, too long, too little of the
+  original vocabulary surviving, and no change at all.</li>
+<li><strong>Defends against:</strong> the reviser replacing the draft instead of improving it. The guards used to
+  be one-sided, catching only shrinkage and sameness, which is precisely how a 3-word input became
+  a 170-word fabrication without anything objecting.</li>
+<li>The vocabulary check uses set overlap rather than <code>difflib</code>. Line-based similarity cannot tell a
+  legitimate paragraph rewrite from an invention, because both score near zero. Vocabulary survival
+  can, since a real revision keeps the subject matter even when every sentence changes.</li>
+<li>The threshold was set from live data, not guessed. Genuine deep rewrites of hedge-heavy prose
+  measured 0.18 to 0.23. Wholesale replacement with unrelated content measured below 0.05. The
+  threshold sits at 0.15.</li>
+</ul>
+<h3 id="configuration">Configuration</h3>
+<ul>
+<li><strong>Decision:</strong> every runtime parameter lives in <code>config/config.yaml</code>, layered so that CLI flags
+  beat environment variables, which beat the file, which beats the dataclass defaults.</li>
+<li><strong>Defends against:</strong> the thing the brief explicitly asks about — having to edit loop code to
+  change a model, an iteration cap, a token budget or a memory backend.</li>
+<li>Config is loaded into frozen, typed dataclasses with unknown-key validation, so a typo like
+  <code>max_iteration</code> raises instead of being silently ignored.</li>
+<li>Nothing in <code>core/</code> imports <code>os</code> or reads YAML. It receives a finished config object, which is
+  what makes the separation structural rather than aspirational.</li>
+</ul>
+<h3 id="fault-injection">Fault injection</h3>
+<ul>
+<li><strong>Decision:</strong> seven injectable failure kinds, each injected at the layer where the real thing
+  actually happens.</li>
+<li><strong>Defends against:</strong> testing the test. Mocking the harness itself would prove nothing about
+  whether the harness works.</li>
+<li>Three real bugs were found this way, and they shared a shape worth remembering. In each case the
+  error containment that kept the run alive is exactly what hid the bug. All three were caught by
+  tests asserting that behaviour <em>changed</em>, not by anything crashing.</li>
+</ul>
+</body>
+</html>
