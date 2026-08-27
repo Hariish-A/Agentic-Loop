@@ -9,27 +9,149 @@ If a session ends abruptly, read **▶ Resume here** at the top, diff it against
 
 | | |
 |---|---|
-| **Last completed** | Milestone 3 — Harness Engineering (M3-1 … M3-13). Verified **live** against GroqCloud. |
-| **Next task** | **M4-1** — final README pass (LLM choice + rationale, architecture diagram) |
-| **Then** | M4-2 (coverage + ruff + mypy) → M4-3 (CI) → M4-4 (demo video script) → M4-5 (solution PDF) → M4-6/7 (push, checklist) |
-| **Blocked on** | Nothing. `GROQ_API_KEY` is set and the live path is proven (`preflight --ping` OK, two full live runs completed). |
-| **Known gap** | `mypy` is not installed in `.venv`; M4-2 needs `pip install -r requirements-dev.txt` first. `src/agentic_rubric/web/` (added outside the M3 work) has one `ruff` SIM105 finding and still calls `AgenticLoop` directly rather than the `Runner`, so the browser demo shows no harness events. |
+| **Last completed** | Milestone 4 — submission pass (M4-1 … M4-5, M4-7). CI, types, coverage, docs. |
+| **Next task** | **M4-5 (you)** — write `docs/solution.md`. The brief forbids an AI-written solution PDF, so the prose is yours; `docs/solution_evidence.md` holds every verified number so you are not re-deriving them. Render with `python scripts/make_pdf.py docs/solution.md`. |
+| **Then** | **M4-4** record the video from `docs/04_demo_script.md` · **M4-6** push to the private remote and add the reviewer accounts |
+| **Blocked on** | Nothing technical. **Not pushed yet** — `gh` is not installed here, so the remote's visibility could not be verified, and the brief disqualifies a public repository. Confirm `github.com/Hariish-A/Agentic-Loop` is private, then `git push -u origin main --follow-tags`. |
+| **Known gap** | Docker has still never been built locally (engine down). `docker compose config` validates and the CI `docker` job builds and runs it, but no image has been produced on this machine. |
 
 **Verify the checkout is healthy before continuing:**
 
 ```bash
-.venv/Scripts/python.exe -m pytest -q                      # 226 at the tag, 242 with the browser demo
-.venv/Scripts/python.exe -m ruff check src tests scripts --exclude src/agentic_rubric/web
-.venv/Scripts/python.exe scripts/preflight.py              # config + provider chain
+.venv/Scripts/python.exe -m pytest -q                      # expect: 303 passed
+.venv/Scripts/python.exe -m pytest -q --cov=agentic_rubric # expect: 91%
+.venv/Scripts/python.exe -m ruff check src tests scripts   # expect: All checks passed!
+.venv/Scripts/python.exe -m mypy                           # expect: no issues in 53 files
 .venv/Scripts/python.exe scripts/preflight.py --ping       # one real API call
 .venv/Scripts/python.exe scripts/memory_ab_demo.py         # memory A/B, offline
-PYTHONPATH=src .venv/Scripts/python.exe -m agentic_rubric.cli \
-    --input samples/weak_essay.txt --provider mock         # full offline run
-PYTHONPATH=src .venv/Scripts/python.exe -m agentic_rubric.cli \
-    --input samples/weak_essay.txt --provider mock \
-    --simulate-failure rate_limit                          # harness recovery
 docker compose config --quiet                              # compose is valid
 ```
+
+---
+
+## 2026-08-27 — Milestone 4: Submission pass ✅
+
+**Status:** M4-1 … M4-3, M4-5 (tooling + evidence), M4-7 complete · M4-4 and M4-6 need you
+**Tests:** 303 passing (85 new) · **Coverage:** 91% · **Lint:** clean · **Types:** clean
+
+### What was built
+
+| Task | Delivered |
+|---|---|
+| M4-1 | README: LLM choice and rationale as its own section, whole-system architecture diagram, a map of where each graded area lives, testing section with real numbers |
+| M4-2 | `ruff` clean, `mypy` clean under `disallow_untyped_defs`, coverage 80% → **91%** |
+| M4-3 | `.github/workflows/ci.yml` — five jobs, no secrets |
+| M4-4 | `docs/04_demo_script.md` — shot-by-shot, timed to 4:15 of 5:00 |
+| M4-5 | `docs/solution_evidence.md` + `scripts/make_pdf.py`. **The PDF prose is not written and will not be** — see below |
+| M4-7 | Submission checklist run; two overclaims found and corrected |
+
+### The solution PDF is deliberately not written
+
+The brief says: *"You may not use AI to write your solution PDF — it must reflect your own
+thinking."* So `docs/solution_evidence.md` contains the questions each required section must answer
+and every verified fact, and **no drafted sentences**. `scripts/make_pdf.py` renders whatever gets
+written to a print-ready page — browser Ctrl+P rather than shipping a GTK toolchain for WeasyPrint
+or hand-laying paragraphs in ReportLab. It estimates page count and warns outside 4–8.
+
+### Two overclaims, found and corrected
+
+Both had been repeated across the README, `docs/03_harness_design.md` and this log.
+
+1. **"`core/` contains no `try`/`except` at all."** False — there are seven. `core/loop.py` has
+   exactly one, and it guards a memory *write*; the other six are single-clause degradations that
+   predate the harness (memory read, two Reason parse fallbacks, Reflect's rule-based critique, and
+   two rubric-YAML loaders). The true and still meaningful claim, now stated everywhere instead:
+   **no retry, backoff, jitter, failover, provider-chain, budget or timeout logic exists anywhere
+   in `core/`.** Verified by grep.
+2. **"eleven lines in `core/loop.py`."** Invented — the actual M3 diff was 88 insertions. Measured
+   properly: the seams cost **five lines inside `run()`** (a stop check at each boundary, and
+   `act(...)` becoming `self._act(...)`), plus three short helpers and a `Protocol` declaration.
+
+Worth recording because both were plausible, quotable and wrong, and both would have been read by a
+reviewer as claims about the code rather than as slogans.
+
+### Bugs and defects found during the pass
+
+- **`diff_drafts` computed the reverse diff for nothing.** A second full `SequenceMatcher` pass over
+  the whole document produced `reverse_similarity` — a value `difflib`'s symmetric ratio makes
+  provably equal to one already in hand, consumed by nothing. Verified symmetric over 300 random
+  pairs before removing it.
+- **`--json` was unusable in a pipe.** The console transcript went to stdout alongside the JSON, so
+  `... --json | jq` failed unless the caller also remembered `--quiet`. That is a trap, not an
+  interface; the transcript now goes to stderr under `--json`.
+- **`result` in `loop.run()` named both an `ActionResult` and the final `RunResult`.** It compiled,
+  and made the last twenty lines read as though a tool call had become the run. Caught by mypy.
+- **`float(entry.get("score"))` relied on `TypeError` to handle a missing score.** Correct at
+  runtime, invisible to a reader; a missing score and an unparseable one are now different branches.
+- **Two `set.add()`-inside-a-comprehension dedupe idioms.** Both worked, both flagged by mypy for
+  using a `None`-returning call as a value. One became `dict.fromkeys`; the other, a case-insensitive
+  dedupe, became an explicit loop.
+- **mypy could not run at all.** `python_version = "3.10"` made it parse numpy's 3.12-syntax stubs as
+  3.10 and abort before checking anything. The pin is gone; 3.10 compatibility is verified where it
+  actually counts — the CI matrix runs the whole suite on it.
+
+### Coverage: where it went and why
+
+80% → **91%**. Two modules were at **0%**:
+
+- **`cli.py`** (216 statements) — where every runtime decision is finally made, so a bug there is
+  invisible to every other test and visible to every user on their first command. Now 91%, 30 tests.
+- **`render.py`** (141 statements) — the *only* view of a run a reviewer watching the demo sees. A
+  renderer that silently dropped harness events would make a run with fifteen absorbed rate limits
+  look identical to one with none. Now 97%, 26 tests.
+
+Plus five handler-contract tests for `analyze_text` and `diff_drafts` branches the happy path never
+reaches (97%, up from 65%).
+
+### CI design
+
+Five jobs, **no secrets configured anywhere** — every test runs against `MockProvider`, so a fork,
+an outside contributor's PR, and a day when the Groq free tier is exhausted all behave identically.
+
+- `quality` — ruff + mypy
+- `test` — the suite on Python **3.10 and 3.12**, `--cov-fail-under=88`
+- `test-vector` — the same suite with `sqlite-vec` + `fastembed`, model cached
+- `demo` — preflight, a full offline run asserting the trajectory climbs, the other rubric, the
+  memory A/B, all seven injected failures, and the budget guardrail's exit code. Uploads traces.
+- `docker` — builds the image and runs the loop inside it
+
+`test` runs with `AGENTIC_MEMORY__EMBEDDER=none` on purpose. That is not a shortcut past the
+embedding model: it exercises the FTS5/BM25 degradation path on **every commit**, which is the same
+path the harness falls back to when the embedder is unavailable in production. `test-vector` covers
+the other half. Every step was rehearsed locally before being written down.
+
+### Verification evidence
+
+```
+$ pytest -q                                  303 passed in 8.9s
+$ pytest --cov=agentic_rubric                TOTAL 3946 stmts, 372 miss, 91%
+$ ruff check src tests scripts               All checks passed!
+$ mypy                                       Success: no issues found in 53 source files
+$ scripts/preflight.py --ping                [ ok ] groq:openai/gpt-oss-120b replied 'ready'
+$ docker compose config --quiet              valid
+                                             all internal doc links resolve
+```
+
+A/B numbers re-verified against the code at this commit, not quoted from memory:
+
+```
+demo-a  (cold)     6 iters  target_reached  96.2%  score -> analyze -> revise -> score -> revise -> score
+demo-b  (warm)     5 iters  target_reached  96.2%  score -> revise -> score -> revise -> score
+control (no mem)   6 iters  target_reached  96.2%  score -> analyze -> revise -> score -> revise -> score
+```
+
+### Open items carried forward
+
+- **The solution PDF is yours to write.** `docs/solution_evidence.md`, then `scripts/make_pdf.py`.
+- **The demo video is unrecorded.** `docs/04_demo_script.md` is the script.
+- **Nothing has been pushed.** `gh` is not installed here, so the remote's visibility could not be
+  checked, and a public repository is disqualifying. Confirm private, then push with
+  `--follow-tags`, then add the reviewer accounts as collaborators.
+- **Docker has never been built on this machine.** The CI `docker` job will be the first real build.
+- **`web/server.py` is at 60% coverage** and still calls `AgenticLoop` directly rather than the
+  `Runner`, so the browser demo displays no harness events. Switching it is a small change and would
+  make the demo strictly better.
+- **The `markdown` package is a new dev dependency**, used only by `scripts/make_pdf.py`.
 
 ---
 

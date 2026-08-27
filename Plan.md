@@ -16,7 +16,7 @@ Every task has a stable ID (`P0-3`, `M2-5`, …) so progress entries can referen
 |---|---|---|
 | Loop Correctness | 25% | M1-4 … M1-9 |
 | Memory Integration | 20% | M2-1 … M2-8 |
-| Harness Engineering | 20% | M3-1 … M3-9 |
+| Harness Engineering | 20% | M3-1 … M3-13 |
 | Patterns Understanding | 15% | M1-10, M1-11 |
 | Tool Design | 10% | M1-3 |
 | Code Quality | 10% | P0-2, M4-1, M4-2 (typing, tests, lint, docstrings) |
@@ -140,13 +140,13 @@ Every task has a stable ID (`P0-3`, `M2-5`, …) so progress entries can referen
 
 ## Milestone 4 — Submission
 
-- [ ] **M4-1** `README.md` final: LLM choice and rationale, setup, run commands, Docker instructions, architecture diagram
-- [ ] **M4-2** Coverage pass + `ruff` + `mypy` clean
-- [ ] **M4-3** `.github/workflows/ci.yml` — lint + tests on push (mock provider, so CI needs no secrets)
-- [ ] **M4-4** Demo video script: 3+ iterations, memory recall visibly changing output, one failure handled gracefully
-- [ ] **M4-5** `docs/solution.md` → **Solution PDF** (4–8 pages): use case & design rationale, patterns applied and why, memory structure + concrete example, failure modes defended, honest reflections on what did not work
-- [ ] **M4-6** Push to **private** GitHub repo, add reviewer accounts as collaborators
-- [ ] **M4-7** Final check against the submission checklist
+- [x] **M4-1** `README.md` final: LLM choice and rationale, setup, run commands, Docker instructions, architecture diagram
+- [x] **M4-2** Coverage pass + `ruff` + `mypy` clean — 80% → **91%**, 303 tests, both linters clean
+- [x] **M4-3** `.github/workflows/ci.yml` — lint + tests on push (mock provider, so CI needs no secrets)
+- [x] **M4-4** Demo video script: `docs/04_demo_script.md` — shot-by-shot, timed to 4:15 of 5:00. *Script written; **the recording is still to do**.*
+- [~] **M4-5** `docs/solution.md` → **Solution PDF** (4–8 pages). *The brief forbids an AI-written solution PDF, so the prose is the author's. Delivered instead: `docs/solution_evidence.md` (every verified number and reference, no drafted prose) and `scripts/make_pdf.py` (renders it print-ready, warns outside 4–8 pages).*
+- [ ] **M4-6** Push to **private** GitHub repo, add reviewer accounts as collaborators. *Remote is configured (`Hariish-A/Agentic-Loop`) but **nothing has been pushed**: `gh` is unavailable locally, so privacy could not be verified, and a public repo is disqualifying.*
+- [x] **M4-7** Final check against the submission checklist
 
 ---
 
