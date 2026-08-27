@@ -1,10 +1,11 @@
+note: memory disabled
 ==== RUN START =========================================================================
-  run       : run_6921bb440b28
-  session   : sess_0a2ff9dd04d0
+  run       : run_bed31268fa1d
+  session   : sess_2a529269c8a5
   rubric    : bug_report
   provider  : mock:mock-1
   memory    : NullMemory (disabled)
-  target    : 85%   max iterations: 6
+  target    : 85%   max iterations: 8
 
 ==== ITERATION 1 =======================================================================
   PERCEIVE  [??????????????????????????????????]  unscored
@@ -19,10 +20,23 @@
 
 ==== ITERATION 2 =======================================================================
   PERCEIVE  [##########-------------------|----]  28.7%
+  REASON    -> analyze_text
+            "No prior experience with this rubric was recalled. Measure the draft
+            directly before spending a revision on a guess."
+  ACT       analyze_text [ok] (1 ms)
+            words=83, sentences=9, avg_sentence=9.2w (sd=5.1, longest=17w), flesch=75.2,
+            hedges=0, filler=1, passive=1. 5/5 structural checks failing: numbered
+            reproduction steps; explicit Expected and Actual labels; pinned version
+            numbers; impact quantified with a figure; blame language avoided.
+  REFLECT   complete=False
+            next focus: reproducibility
+
+==== ITERATION 3 =======================================================================
+  PERCEIVE  [##########-------------------|----]  28.7%
   REASON    -> revise_text
             "Reproduction Steps, Expected vs Actual carry the most weighted headroom at
             28.7%, so editing there buys the most points."
-  ACT       revise_text [ok] (2 ms)
+  ACT       revise_text [ok] (3 ms)
             Revised for reproducibility, expected_vs_actual: 83 -> 123 words (+40),
             similarity 0.92. The draft is now unscored - score it to see the effect.
   REFLECT   complete=False
@@ -30,7 +44,7 @@
             moves the total faster than fixing the lowest raw score.
             next focus: reproducibility
 
-==== ITERATION 3 =======================================================================
+==== ITERATION 4 =======================================================================
   PERCEIVE  [??????????????????????????????????]  unscored
   REASON    -> score_against_rubric
             "The draft is unscored, so I cannot tell where the points are. Measure
@@ -41,7 +55,7 @@
   REFLECT   complete=False  delta=+38.8pts
             next focus: reproducibility
 
-==== ITERATION 4 =======================================================================
+==== ITERATION 5 =======================================================================
   PERCEIVE  [#######################------|----]  67.5%
   REASON    -> revise_text
             "Reproduction Steps, Environment Detail carry the most weighted headroom at
@@ -54,7 +68,7 @@
             source is what lifts the evidence criterion.
             next focus: impact
 
-==== ITERATION 5 =======================================================================
+==== ITERATION 6 =======================================================================
   PERCEIVE  [??????????????????????????????????]  unscored
   REASON    -> score_against_rubric
             "The draft is unscored, so I cannot tell where the points are. Measure
@@ -66,10 +80,10 @@
 
 ==== RUN COMPLETE ======================================================================
   status      : target_reached
-  iterations  : 5
+  iterations  : 6
   trajectory  : 28.7% -> 67.5% -> 92.5%
   score       : 28.7% -> 92.5%  (+63.8 points)
   best        : [#############################|#---]  target 85%
-  tokens      : 1,200 in / 600 out
+  tokens      : 1,320 in / 660 out
   elapsed     : 0.01s
 

@@ -304,16 +304,16 @@ def test_exhausted_script_fails_loudly() -> None:
 
 def test_factory_refuses_a_provider_with_no_key() -> None:
     config = load_config(CONFIG)
-    with pytest.raises(ProviderUnavailableError, match="GEMINI_API_KEY"):
-        build_provider(config, "gemini", env={})
+    with pytest.raises(ProviderUnavailableError, match="GROQ_API_KEY"):
+        build_provider(config, "groq", env={})
 
 
 def test_factory_builds_a_keyed_provider() -> None:
     config = load_config(CONFIG)
-    provider = build_provider(config, "grok", env={"XAI_API_KEY": "sk-test"})
+    provider = build_provider(config, "groq", env={"GROQ_API_KEY": "gsk-test"})
     try:
-        assert provider.name == "grok"
-        assert provider.describe() == "grok:grok-4.20-fast"
+        assert provider.name == "groq"
+        assert provider.describe() == "groq:openai/gpt-oss-120b"
     finally:
         provider.close()
 

@@ -16,7 +16,7 @@ Environment override convention::
 
 Double underscore separates nesting levels, so arbitrarily deep keys work::
 
-    AGENTIC_LLM__PROVIDERS__GROK__MODEL=grok-4.6
+    AGENTIC_LLM__PROVIDERS__GROQ__MODEL=openai/gpt-oss-20b
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ class ConfigError(ValueError):
 class LLMProviderConfig:
     """One OpenAI-compatible endpoint.
 
-    Gemini, xAI/Grok, Ollama, OpenAI and OpenRouter all speak the same
+    GroqCloud, Ollama, OpenAI, OpenRouter and others all speak the same
     ``/chat/completions`` dialect, so a single client class plus this record is
     enough to swap providers from a config file.
     """
@@ -62,6 +62,10 @@ class LLMProviderConfig:
     #: explicitly rather than inferred from the URL, so "why is this provider
     #: being skipped?" is answerable from the config file alone.
     requires_key: bool = True
+    #: Groq rejects ``messages[].name``. Declared per provider so the client
+    #: strips the field instead of the caller having to know which backend it
+    #: is talking to.
+    supports_message_name: bool = True
 
     def api_key(self, env: t.Mapping[str, str] | None = None) -> str | None:
         """Read this provider key from the environment, or ``None`` if unset."""
@@ -113,8 +117,15 @@ class MemoryConfig:
     embed_model: str = "BAAI/bge-small-en-v1.5"
     recall_top_k: int = 5
     recall_min_score: float = 0.25
-    lesson_scope: str = "global"
+    #: Lessons outlive a session but belong to the rubric that produced them.
+    lesson_scope: str = "rubric"
     episodic_scope: str = "session"
+    #: Lessons are few and curated, so they are ranked but not relevance-gated.
+    #: The gate applies to episodic recall, which is voluminous and noisy.
+    gate_lessons: bool = False
+    max_lessons_per_recall: int = 3
+    #: Blend weight when both the vector and keyword channels return a hit.
+    vector_weight: float = 0.7
 
 
 @dataclass(frozen=True)

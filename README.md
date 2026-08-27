@@ -7,7 +7,7 @@ The agent scores a draft against a weighted rubric, decides which criterion is t
 lever, revises the text targeting that criterion, re-scores, and repeats until it hits the target
 score, plateaus, or trips a guardrail.
 
-> **Status:** Phase 0 complete (foundation). See [Plan.md](Plan.md) for the task list and
+> **Status:** Milestones 1 and 2 complete. See [Plan.md](Plan.md) for the task list and
 > [progress.md](progress.md) for what is done and what is next.
 
 ---
@@ -49,12 +49,16 @@ than four prompts wearing different hats.
 
 | Concern | Choice | Why |
 |---|---|---|
-| LLM | Any OpenAI-compatible endpoint | One ~200-line httpx client covers Gemini, Grok, Ollama, OpenAI, OpenRouter |
-| Primary provider | **Google Gemini** (free tier) | No card required; generous enough for development |
-| Fallback chain | Grok → Ollama → mock | Provider failover is itself a demoable failure mode |
-| Memory | SQLite + `sqlite-vec` + `fastembed` | One file, no server, works offline; BM25/FTS5 auto-fallback |
+| LLM | Any OpenAI-compatible endpoint | One ~220-line httpx client covers Groq, Ollama, OpenAI, OpenRouter |
+| Primary provider | **GroqCloud**, `openai/gpt-oss-120b` | Fast, cheap, supports tool calling and structured outputs |
+| Fallback chain | `groq` → `ollama` → `mock` | Provider failover is itself a demoable failure mode |
+| Memory | SQLite + `sqlite-vec` + `fastembed` | One file, no server, works offline; FTS5/BM25 auto-fallback |
 | HTTP | `httpx` | Direct control over status→error mapping; retries owned by our harness |
 | Config | YAML + env + CLI, typed dataclasses | Every runtime knob swappable without touching loop code |
+
+Provider quirks are handled as **capability flags in config**, never by branching on a provider name.
+Groq, for example, rejects `messages[].name` (declared as `supports_message_name: false`) and coerces
+`temperature=0` to `1e-8`.
 
 **Total running cost: $0.** Every dependency is OSS and every provider option has a free path.
 
@@ -67,9 +71,15 @@ python -m venv .venv
 .venv/Scripts/python.exe -m pip install -r requirements-dev.txt   # Windows
 # source .venv/bin/activate && pip install -r requirements-dev.txt  # macOS/Linux
 
-cp .env.example .env          # then add at least one API key (optional for the mock demo)
+cp .env.example .env          # then add GROQ_API_KEY (optional for the mock demo)
 python scripts/preflight.py   # validates config, shows which providers are usable
 python scripts/preflight.py --ping   # makes one real API call
+```
+
+Run the loop with no API key at all:
+
+```bash
+python -m agentic_rubric.cli --input samples/weak_essay.txt --provider mock
 ```
 
 Run the tests — no API key or network required:
@@ -92,10 +102,16 @@ CLI flags  >  environment variables  >  config.yaml  >  dataclass defaults
 Environment overrides use `AGENTIC_<SECTION>__<FIELD>`, nesting arbitrarily deep:
 
 ```bash
-AGENTIC_LLM__PRIMARY=grok
+AGENTIC_LLM__PRIMARY=ollama
 AGENTIC_LOOP__MAX_ITERATIONS=8
-AGENTIC_LLM__PROVIDERS__GROK__MODEL=grok-4.6
+AGENTIC_LLM__PROVIDERS__GROQ__MODEL=openai/gpt-oss-20b
 AGENTIC_MEMORY__BACKEND=sqlite_fts
+```
+
+Or from the command line, for any key at all:
+
+```bash
+python -m agentic_rubric.cli --set loop.revise_candidates=3 --set memory.max_lessons_per_recall=5 ...
 ```
 
 API keys are never stored in the config file — each provider names the variable it reads via
@@ -114,8 +130,41 @@ python -m agentic_rubric.cli --input samples/weak_bug_report.txt \
 ```
 
 Two shipped rubrics — an argumentative essay and an engineering bug report — swap the entire domain
-with no code change. Each declares weighted criteria, level descriptors and improvement hints in
-YAML.
+with no code change. Each declares weighted criteria, level descriptors, improvement hints and
+deterministic regex `probes` in YAML.
+
+---
+
+## Memory
+
+Three tiers with three lifetimes, all in one SQLite file:
+
+| Tier | Scope | Example |
+|---|---|---|
+| `episodic` | this session | `iteration 2: revise_text -> 202 -> 243 words, similarity 0.95` |
+| `lesson` | this **rubric**, any session | `Unattributed figures score no better than no figures.` |
+| `profile` | this rubric | standing constraints (tone, target, banned edits) |
+
+Read at the start of every Perceive, written after every Reflect. Semantic recall via `sqlite-vec` +
+`fastembed`, with FTS5/BM25 as the automatic fallback when the embedder is unavailable.
+
+```bash
+python scripts/memory_ab_demo.py        # proves memory changes behaviour, offline
+python -m agentic_rubric.cli --memory-stats
+python -m agentic_rubric.cli --clear-session <session-id>
+python -m agentic_rubric.cli --no-memory ...    # the A/B control
+```
+
+The A/B result — identical input, identical target, three arms:
+
+```
+A  memory on, cold store     6 iters   score -> analyze_text -> revise -> score -> revise -> score
+B  memory on, warm store     5 iters   score -> revise -> score -> revise -> score
+C  memory off (control)      6 iters   score -> analyze_text -> revise -> score -> revise -> score
+```
+
+Run B is a *different session* reading lessons run A wrote. A ≡ C is the control that makes B
+meaningful. Full write-up in [docs/02_memory_design.md](docs/02_memory_design.md).
 
 ---
 
@@ -145,9 +194,10 @@ tests/           mock-driven, no key or network required
 |---|---|
 | [Plan.md](Plan.md) | Full milestone-by-milestone task list with stable IDs |
 | [progress.md](progress.md) | Live status, decisions with rationale, resume pointer |
-| `docs/01_patterns_research.md` | ReAct, Reflexion, CoT, Tree of Thoughts, LATS — and which are applied here |
-| `docs/02_memory_design.md` | Backend choice, schema, and a concrete before/after example |
-| `docs/03_harness_design.md` | Each engineering decision paired with the failure mode it defends |
+| [docs/01_patterns_research.md](docs/01_patterns_research.md) | ReAct, Reflexion, CoT, Tree of Thoughts, LATS — mechanisms, costs, and which are applied here |
+| [docs/02_memory_design.md](docs/02_memory_design.md) | Backend choice, schema, scope policy, and the A/B transcript |
+| `docs/03_harness_design.md` | Each engineering decision paired with the failure mode it defends *(Milestone 3)* |
+| [docs/demos/](docs/demos/) | Captured run transcripts, including injected failures |
 
 ---
 

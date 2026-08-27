@@ -11,8 +11,8 @@ CONFIG = "config/config.yaml"
 
 def test_loads_shipped_config() -> None:
     config = load_config(CONFIG)
-    assert config.llm.primary == "gemini"
-    assert config.llm.chain == ["gemini", "grok", "ollama"]
+    assert config.llm.primary == "groq"
+    assert config.llm.chain == ["groq", "ollama"]
     assert config.loop.max_iterations == 6
     assert config.guardrails.token_budget == 200_000
 
@@ -25,15 +25,15 @@ def test_missing_file_is_an_error_when_explicitly_requested() -> None:
 def test_env_overrides_beat_the_file() -> None:
     config = load_config(
         CONFIG,
-        env={"AGENTIC_LOOP__MAX_ITERATIONS": "11", "AGENTIC_LLM__PRIMARY": "grok"},
+        env={"AGENTIC_LOOP__MAX_ITERATIONS": "11", "AGENTIC_LLM__PRIMARY": "ollama"},
     )
     assert config.loop.max_iterations == 11  # coerced from str to int
-    assert config.llm.chain[0] == "grok"
+    assert config.llm.chain[0] == "ollama"
 
 
 def test_env_reaches_arbitrary_nesting_depth() -> None:
-    config = load_config(CONFIG, env={"AGENTIC_LLM__PROVIDERS__GROK__MODEL": "grok-4.6"})
-    assert config.llm.provider("grok").model == "grok-4.6"
+    config = load_config(CONFIG, env={"AGENTIC_LLM__PROVIDERS__GROQ__MODEL": "openai/gpt-oss-20b"})
+    assert config.llm.provider("groq").model == "openai/gpt-oss-20b"
 
 
 def test_cli_overrides_beat_env() -> None:
@@ -68,17 +68,17 @@ def test_unknown_key_fails_loudly() -> None:
 
 def test_unknown_provider_names_the_configured_ones() -> None:
     config = load_config(CONFIG)
-    with pytest.raises(ConfigError, match="configured: gemini"):
+    with pytest.raises(ConfigError, match="configured: groq"):
         config.llm.provider("nope")
 
 
 def test_provider_chain_deduplicates() -> None:
-    config = load_config(CONFIG, overrides={"llm.fallbacks": ["grok", "gemini", "grok"]})
-    assert config.llm.chain == ["gemini", "grok"]
+    config = load_config(CONFIG, overrides={"llm.fallbacks": ["ollama", "groq", "ollama"]})
+    assert config.llm.chain == ["groq", "ollama"]
 
 
 def test_api_key_reads_from_the_named_variable() -> None:
-    provider = load_config(CONFIG).llm.provider("gemini")
-    assert provider.api_key({"GEMINI_API_KEY": "  abc  "}) == "abc"
-    assert provider.api_key({"GEMINI_API_KEY": "   "}) is None
+    provider = load_config(CONFIG).llm.provider("groq")
+    assert provider.api_key({"GROQ_API_KEY": "  abc  "}) == "abc"
+    assert provider.api_key({"GROQ_API_KEY": "   "}) is None
     assert provider.api_key({}) is None

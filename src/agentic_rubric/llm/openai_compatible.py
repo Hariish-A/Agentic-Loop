@@ -1,11 +1,15 @@
 """One HTTP client for every OpenAI-compatible ``/chat/completions`` endpoint.
 
-Gemini (via its OpenAI compatibility layer), xAI/Grok, Ollama, OpenAI,
-OpenRouter and Groq all accept the same request shape, so a single ~200-line
-client plus a config record covers all of them. Written against ``httpx``
-rather than a vendor SDK on purpose: the whole point of this layer is to map
-provider-specific HTTP outcomes onto *our* error taxonomy, and going through an
-SDK would mean re-deriving that mapping from four different exception trees.
+GroqCloud, Ollama, OpenAI, OpenRouter and others all accept the same request
+shape, so a single ~200-line client plus a config record covers all of them.
+Written against ``httpx`` rather than a vendor SDK on purpose: the whole point
+of this layer is to map provider-specific HTTP outcomes onto *our* error
+taxonomy, and going through an SDK would mean re-deriving that mapping from
+several different exception trees.
+
+Provider quirks are handled by capability flags on the config record, not by
+branching on the provider name. Groq, for instance, rejects ``messages[].name``
+and silently converts ``temperature=0`` to ``1e-8``.
 
 Transport-level retries are disabled here. Retrying is the harness's job
 (Milestone 3), so that backoff, jitter and the token budget are decided in one
@@ -53,6 +57,7 @@ class OpenAICompatibleProvider(LLMProvider):
         api_key: str | None = None,
         timeout_s: float = 60.0,
         supports_tools: bool = True,
+        supports_message_name: bool = True,
         retry_on_status: t.Iterable[int] = DEFAULT_RETRY_STATUS,
         client: httpx.Client | None = None,
     ) -> None:
@@ -61,6 +66,7 @@ class OpenAICompatibleProvider(LLMProvider):
         self.name = name
         self.model = model
         self.supports_tools = supports_tools
+        self.supports_message_name = supports_message_name
         self._retry_status = frozenset(retry_on_status)
         self._owns_client = client is None
         headers = {"Content-Type": "application/json"}
@@ -86,7 +92,9 @@ class OpenAICompatibleProvider(LLMProvider):
     ) -> dict[str, t.Any]:
         body: dict[str, t.Any] = {
             "model": self.model,
-            "messages": [m.to_wire() for m in messages],
+            "messages": [
+                m.to_wire(include_name=self.supports_message_name) for m in messages
+            ],
         }
         if temperature is not None:
             body["temperature"] = temperature

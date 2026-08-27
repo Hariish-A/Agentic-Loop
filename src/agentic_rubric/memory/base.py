@@ -45,6 +45,18 @@ class MemoryRecord:
     def __post_init__(self) -> None:
         self.content = self.content.strip()
 
+    @property
+    def content_hash(self) -> str:
+        """Stable identity for deduplication.
+
+        Case- and whitespace-insensitive, because the same lesson relearned in a
+        later session rarely comes back character-identical.
+        """
+        import hashlib
+
+        normalised = " ".join(self.content.lower().split())
+        return hashlib.sha256(normalised.encode("utf-8")).hexdigest()[:32]
+
 
 class MemoryStore(ABC):
     """The three operations the challenge requires, plus two for operability."""
@@ -59,11 +71,17 @@ class MemoryStore(ABC):
         query: str,
         *,
         session_id: str | None = None,
+        rubric_id: str | None = None,
         kinds: t.Sequence[str] | None = None,
         limit: int = 5,
         min_score: float = 0.0,
     ) -> list[MemoryHit]:
-        """Return the most relevant records for ``query``, best first."""
+        """Return the most relevant records for ``query``, best first.
+
+        ``rubric_id`` scopes lessons: a finding learned while grading essays is
+        not evidence about bug reports, and recalling it there would be worse
+        than recalling nothing.
+        """
 
     @abstractmethod
     def clear_session(self, session_id: str) -> int:
@@ -98,6 +116,7 @@ class NullMemory(MemoryStore):
         query: str,
         *,
         session_id: str | None = None,
+        rubric_id: str | None = None,
         kinds: t.Sequence[str] | None = None,
         limit: int = 5,
         min_score: float = 0.0,

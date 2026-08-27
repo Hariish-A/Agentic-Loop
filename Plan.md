@@ -35,7 +35,7 @@ Every task has a stable ID (`P0-3`, `M2-5`, …) so progress entries can referen
 - [x] **P0-6** `llm/types.py` — `Message`, `ToolSpec`, `ToolCall`, `Usage`, `LLMResponse` + error taxonomy split by *caller action* (retryable / terminal / parse / unavailable)
 - [x] **P0-7** `llm/parsing.py` — tolerant JSON salvage (fences, prose wrappers, trailing commas, string-aware brace matching)
 - [x] **P0-8** `llm/base.py` — `LLMProvider` ABC the loop depends on
-- [x] **P0-9** `llm/openai_compatible.py` — one httpx client for Gemini / Grok / Ollama / OpenAI / OpenRouter; HTTP status → error taxonomy; config-driven retryable statuses; usage estimation fallback
+- [x] **P0-9** `llm/openai_compatible.py` — one httpx client for every OpenAI-compatible endpoint (GroqCloud / Ollama / OpenAI / OpenRouter); HTTP status → error taxonomy; config-driven retryable statuses; per-provider capability flags; usage estimation fallback
 - [x] **P0-10** `llm/mock.py` — deterministic scripted provider + fault injection + stateful responder
 - [x] **P0-11** `llm/factory.py` — build by config key; pre-flight availability check; failover chain reporting
 - [x] **P0-12** `config/rubrics/essay_argumentative.yaml` + `config/rubrics/bug_report.yaml` (5 weighted criteria each, level descriptors, improvement hints)
@@ -89,16 +89,16 @@ Every task has a stable ID (`P0-3`, `M2-5`, …) so progress entries can referen
 
 *Goal: what the agent stores in iteration N provably changes its behaviour in iteration N+1 and in a later session.*
 
-- [ ] **M2-1** `memory/base.py` — `MemoryStore` ABC exposing the three required operations: `save`, `recall(query)`, `clear_session` (+ `list_sessions`, `stats`)
-- [ ] **M2-2** `memory/records.py` — three tiers: **episodic** (per-session events), **lesson** (cross-session, Reflexion output), **profile** (rubric/user constraints); typed records with `session_id`, `iteration`, `criterion`, `score_delta`, `created_at`
-- [ ] **M2-3** `memory/sqlite_store.py` — SQLite schema, migrations, FTS5 keyword recall (zero-dependency baseline)
-- [ ] **M2-4** `memory/vector.py` — `sqlite-vec` + `fastembed` semantic recall in the *same* database file; automatic degradation to FTS5/BM25 when the embedder is unavailable
-- [ ] **M2-5** `memory/manager.py` — scope rules (lessons global, episodes session-scoped), hybrid ranking, `recall_min_score` filtering, dedupe
-- [ ] **M2-6** Wire into the loop: **read** at the start of every `perceive`, **write** after every `reflect`; recalled context rendered into the Reason prompt as a labelled block
-- [ ] **M2-7** A/B demo harness: identical input run with `--no-memory` vs memory-on, side by side, showing fewer iterations / higher score with memory
-- [ ] **M2-8** `docs/02_memory_design.md` — backend choice and why, schema, scope rules, and the concrete A/B transcript with the recalled record quoted
-- [ ] **M2-9** Tests: round-trip save/recall, session isolation, `clear_session`, embedder-down → BM25 fallback, cross-session lesson recall
-- [ ] **M2-10** Commit + tag `milestone-2`
+- [x] **M2-1** `memory/base.py` — `MemoryStore` ABC exposing the three required operations: `save`, `recall(query)`, `clear_session` (+ `list_sessions`, `stats`)
+- [x] **M2-2** Record tiers — **episodic** (per-session), **lesson** (cross-session Reflexion output), **profile** (rubric constraints); typed `MemoryRecord` with `session_id`, `iteration`, `rubric_id`, `criterion_id`, `score_delta`, `created_at`, `hits`. *Landed in `memory/base.py` rather than a separate `records.py` — one small module beats two.*
+- [x] **M2-3** `memory/sqlite_store.py` — SQLite schema, migrations, FTS5 keyword recall (zero-dependency baseline)
+- [x] **M2-4** `memory/embedding.py` + vector half of `sqlite_store.py` — `sqlite-vec` + `fastembed` semantic recall in the *same* database file; automatic degradation to FTS5/BM25 when the embedder is unavailable
+- [x] **M2-5** `memory/manager.py` — scope rules (lessons **rubric**-scoped across sessions, episodes session-scoped), hybrid vector+keyword ranking, gate applied to episodic only, dedupe, circuit breaker
+- [x] **M2-6** Wire into the loop: **read** at the start of every `perceive`, **write** after every `reflect`; recalled context rendered into the Reason prompt as a labelled block
+- [x] **M2-7** `scripts/memory_ab_demo.py` — three arms (cold / warm / no-memory) proving warm memory saves an iteration, with cold≡no-memory as the control
+- [x] **M2-8** `docs/02_memory_design.md` — backend choice and why, schema, scope rules, and the concrete A/B transcript with the recalled record quoted
+- [x] **M2-9** Tests: round-trip save/recall, session isolation, `clear_session`, embedder-down → BM25 fallback, cross-session lesson recall
+- [x] **M2-10** Commit + tag `milestone-2`
 
 ---
 
@@ -110,13 +110,13 @@ Every task has a stable ID (`P0-3`, `M2-5`, …) so progress entries can referen
 - [ ] **M3-1** `harness/retry.py` — exponential backoff + full/equal jitter, `Retry-After` honoured, attempt cap, retryable-vs-terminal classification, separate policies for LLM calls and tool calls
 
 ### Fallbacks (one defined path per failure mode)
-- [ ] **M3-2** `harness/fallbacks.py`
+- [ ] **M3-2** `harness/fallbacks.py`  *(memory circuit breaker already done in `memory/manager.py`)*
   - Unparseable LLM output → forced schema → local salvage → one repair call → safe default action
   - Tool failure → structured `ToolError` fed back as an observation → sanitised retry → mark degraded, route to alternative
   - Iteration cap → return **best draft seen**, `status=max_iterations_reached`
   - Memory read failure → circuit-breaker to no-op store, `degraded_memory=true`, loop continues
   - Token budget exhausted → forced graceful `finalize`
-  - Provider unavailable → walk the failover chain (`gemini → grok → ollama`)
+  - Provider unavailable → walk the failover chain (`groq → ollama`)  *(already implemented in `cli.resolve_provider`; M3 moves it inside the run loop)*
 
 ### Observability
 - [ ] **M3-3** `observability/logger.py` — structured JSON logger with secret redaction

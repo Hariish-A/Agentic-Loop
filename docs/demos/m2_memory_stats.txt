@@ -1,0 +1,25 @@
+note: semantic recall via fastembed (384d)
+{
+  "db_path": "D:\\Official\\Projects\\Agentic Loop\\data\\memory.db",
+  "total": 13,
+  "by_kind": {
+    "episodic": 11,
+    "lesson": 2
+  },
+  "sessions": 2,
+  "vector_enabled": true,
+  "vector_dimension": 384,
+  "vectors_indexed": 13,
+  "embedder": "fastembed (384d)",
+  "notes": [],
+  "degraded": false,
+  "degraded_reason": "",
+  "consecutive_failures": 0,
+  "policy": {
+    "lesson_scope": "rubric",
+    "episodic_scope": "session",
+    "gate_lessons": false,
+    "recall_top_k": 5,
+    "recall_min_score": 0.25
+  }
+}

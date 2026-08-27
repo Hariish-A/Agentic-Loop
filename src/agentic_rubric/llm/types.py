@@ -124,11 +124,17 @@ class Message:
     tool_call_id: str | None = None
     tool_calls: tuple[ToolCall, ...] = ()
 
-    def to_wire(self) -> dict[str, t.Any]:
+    def to_wire(self, *, include_name: bool = True) -> dict[str, t.Any]:
+        """Serialise to the OpenAI wire format.
+
+        ``include_name`` exists because Groq rejects ``messages[].name``
+        outright. Dropping it costs nothing (it is advisory metadata) and is
+        cheaper than discovering the incompatibility as a 400 in production.
+        """
         payload: dict[str, t.Any] = {"role": self.role}
         # An assistant turn that only requests tools legitimately has no content.
         payload["content"] = self.content or (None if self.tool_calls else "")
-        if self.name:
+        if self.name and include_name:
             payload["name"] = self.name
         if self.tool_call_id:
             payload["tool_call_id"] = self.tool_call_id

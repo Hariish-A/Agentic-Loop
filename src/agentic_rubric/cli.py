@@ -40,7 +40,8 @@ from .llm.demo_responder import ScriptedAgentResponder, make_failure
 from .llm.factory import available_chain, build_provider
 from .llm.mock import MockProvider
 from .llm.types import LLMError, ProviderUnavailableError
-from .memory.base import MemoryStore, NullMemory
+from .memory.base import MemoryStore
+from .memory.factory import build_memory as build_memory_stack
 from .observability.render import ConsoleRenderer
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -78,6 +79,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--no-memory", action="store_true", help="run without memory (A/B baseline)"
+    )
+    parser.add_argument(
+        "--clear-session",
+        metavar="SESSION_ID",
+        help="delete every memory record for one session, then exit",
+    )
+    parser.add_argument(
+        "--memory-stats", action="store_true", help="print memory statistics and exit"
     )
     parser.add_argument("--out", "-o", help="write the best draft to this file")
     parser.add_argument("--json", action="store_true", help="print the run result as JSON")
@@ -180,11 +189,30 @@ def resolve_provider(
     )
 
 
-def build_memory(config: AppConfig, args: argparse.Namespace) -> MemoryStore:
-    """Milestone 1 ships the no-op store; Milestone 2 swaps in the SQLite one."""
-    if args.no_memory or not config.memory.enabled:
-        return NullMemory()
-    return NullMemory()
+def build_memory(config: AppConfig, args: argparse.Namespace) -> tuple[MemoryStore, list[str]]:
+    """Assemble the memory stack. ``--no-memory`` is the A/B baseline."""
+    return build_memory_stack(config, enabled=not args.no_memory)
+
+
+def run_memory_command(config: AppConfig, args: argparse.Namespace) -> int:
+    """Handle the maintenance flags that exit before the loop runs.
+
+    These expose two of the three required memory operations directly, so
+    ``clear_session`` is demonstrable from the command line rather than only
+    from a test.
+    """
+    store, notes = build_memory_stack(config, enabled=True, warm_embedder=False)
+    try:
+        for note in notes:
+            print(f"note: {note}", file=sys.stderr)
+        if args.clear_session:
+            removed = store.clear_session(args.clear_session)
+            print(f"cleared {removed} record(s) for session {args.clear_session}")
+            return 0
+        print(json.dumps(store.stats(), indent=2, default=str))
+        return 0
+    finally:
+        store.close()
 
 
 def main(argv: t.Sequence[str] | None = None) -> int:
@@ -203,6 +231,8 @@ def main(argv: t.Sequence[str] | None = None) -> int:
 
     try:
         config = load_config(args.config, overrides=overrides, project_root=PROJECT_ROOT)
+        if args.clear_session or args.memory_stats:
+            return run_memory_command(config, args)
         rubric = Rubric.from_yaml(args.rubric)
         draft = read_input(args)
         provider, notes = resolve_provider(config, args, rubric)
@@ -213,6 +243,9 @@ def main(argv: t.Sequence[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 3
 
+    memory, memory_notes = build_memory(config, args)
+    notes.extend(memory_notes)
+
     renderer = None if args.quiet else ConsoleRenderer(verbose=args.verbose)
     for note in notes:
         print(f"note: {note}", file=sys.stderr)
@@ -221,7 +254,7 @@ def main(argv: t.Sequence[str] | None = None) -> int:
         config=config,
         provider=provider,
         rubric=rubric,
-        memory=build_memory(config, args),
+        memory=memory,
         on_event=renderer,
     )
 
@@ -237,6 +270,7 @@ def main(argv: t.Sequence[str] | None = None) -> int:
         return 4
     finally:
         provider.close()
+        memory.close()
 
     if args.out:
         Path(args.out).write_text(result.best_draft, encoding="utf-8")

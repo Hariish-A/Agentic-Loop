@@ -442,15 +442,22 @@ def test_an_empty_draft_is_rejected_before_any_api_call(rubric: Rubric) -> None:
 
 
 def test_a_judge_outage_does_not_end_the_run(rubric: Rubric, draft: str) -> None:
-    config = load_config(CONFIG)
+    # A wider cap than the default: the outage costs one iteration, and with no
+    # memory the agent also spends one exploring, so the default 6 would stop
+    # the run for reasons unrelated to what this test is about.
+    config = load_config(CONFIG, overrides={"loop.max_iterations": 8})
     responder = ScriptedAgentResponder(rubric=rubric, target_score=85.0)
     responder.fail_on["judge"] = RateLimitError("429 injected", provider="mock")
     loop = AgenticLoop(config=config, provider=MockProvider(responder=responder), rubric=rubric)
 
-    result = loop.run(draft, target_score=85.0)
+    result = loop.run(draft, target_score=85.0, max_iterations=8)
     failures = [record for record in result.records if not record.result.ok]
     assert failures  # the injected failure was seen
-    assert result.status is RunStatus.TARGET_REACHED  # and recovered from
+    assert failures[0].decision.action == "score_against_rubric"
+    # The very next scoring attempt succeeded: the agent reacted to the failed
+    # tool call as an observation rather than the run dying on it.
+    assert any(r.result.ok and r.decision.action == "score_against_rubric" for r in result.records)
+    assert result.status is RunStatus.TARGET_REACHED
 
 
 def test_events_are_emitted_for_every_step(rubric: Rubric, draft: str) -> None:

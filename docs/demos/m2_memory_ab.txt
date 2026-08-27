@@ -1,0 +1,30 @@
+cleared D:\Official\Projects\Agentic Loop\data\ab_demo_memory.db
+
+running three arms...
+  A cold memory : target_reached in 6 iteration(s)
+  B warm memory : target_reached in 5 iteration(s)
+  C no memory   : target_reached in 6 iteration(s)
+
+====================================================================================================
+run                          iters     best   status           actions
+----------------------------------------------------------------------------------------------------
+A  memory on, cold store      6 iters    96.2%   target_reached   score -> analyze_text -> revise_text -> score -> revise_text -> score
+B  memory on, warm store      5 iters    96.2%   target_reached   score -> revise_text -> score -> revise_text -> score
+C  memory off (control)       6 iters    96.2%   target_reached   score -> analyze_text -> revise_text -> score -> revise_text -> score
+====================================================================================================
+
+A vs C  (cold store vs no store) : 6 vs 6 iterations   <- expected to match; a cold store carries no information
+B vs A  (warm store vs cold store): 5 vs 6 iterations
+
+=> Memory saved 1 iteration(s). Run B is a DIFFERENT session that read lessons run A wrote.
+
+Lessons run A recalled: 2 (it wrote them, but only after the fact)
+Lessons run B recalled, written by run A: 2
+  [lesson | session ab-cold, iter 3 | relevance 0.43] On this rubric, targeting the two highest-weighted criteria first moves the total faster than fixing the lowest raw score.
+  [lesson | session ab-cold, iter 5 | relevance 0.43] Unattributed figures score no better than no figures; naming the source is what lifts the evidence criterion.
+
+Iteration 2 decision, side by side:
+  A (analyze_text): No prior experience with this rubric was recalled. Measure the draft directly before spending a revision on a guess.
+  B (revise_text): Memory says: On this rubric, targeting the two highest-weighted criteria first moves the tota... Applying that directly to Thesis and Positi
+
+removed D:\Official\Projects\Agentic Loop\data\ab_demo_memory.db

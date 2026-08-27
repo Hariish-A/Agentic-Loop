@@ -1,7 +1,7 @@
 """The provider interface every LLM backend implements.
 
 The loop depends on this ABC and never on a concrete provider, which is what
-allows Gemini, Grok, Ollama and the deterministic mock to be swapped from
+allows Groq, Ollama and the deterministic mock to be swapped from
 ``config.yaml`` -- and what lets the Milestone 3 harness wrap a failover chain
 around them without the loop noticing.
 """
@@ -20,7 +20,7 @@ ToolChoice = t.Literal["auto", "required", "none"] | str | None
 class LLMProvider(ABC):
     """A synchronous chat-completion backend."""
 
-    #: Config key this provider was built from, e.g. ``"gemini"``.
+    #: Config key this provider was built from, e.g. ``"groq"``.
     name: str = "unknown"
     #: Concrete model identifier sent on the wire.
     model: str = ""

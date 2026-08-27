@@ -1,7 +1,7 @@
 """Build LLM providers from configuration.
 
-The loop asks the factory for "a provider", never for "a Gemini client". That
-indirection is what makes `AGENTIC_LLM__PRIMARY=grok` a complete provider swap,
+The loop asks the factory for "a provider", never for "a Groq client". That
+indirection is what makes `AGENTIC_LLM__PRIMARY=ollama` a complete provider swap,
 and it is where the Milestone 3 failover chain plugs in: the harness asks for
 the ordered list of *available* providers and walks it on failure.
 """
@@ -67,6 +67,7 @@ def build_provider(
         api_key=settings.api_key(env),
         timeout_s=settings.timeout_s,
         supports_tools=settings.supports_tools,
+        supports_message_name=settings.supports_message_name,
         retry_on_status=config.retry.retry_on_status,
     )
 

@@ -6,7 +6,7 @@ succeed? Run it before anything else::
 
     python scripts/preflight.py                 # offline: config + availability
     python scripts/preflight.py --ping          # also make one real API call
-    python scripts/preflight.py --ping --provider grok
+    python scripts/preflight.py --ping --provider ollama
 """
 
 from __future__ import annotations

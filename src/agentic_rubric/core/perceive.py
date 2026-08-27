@@ -74,6 +74,7 @@ def recall_context(
         hits = memory.recall(
             build_recall_query(state),
             session_id=state.session_id,
+            rubric_id=state.rubric.id,
             limit=config.memory.recall_top_k,
             min_score=config.memory.recall_min_score,
         )

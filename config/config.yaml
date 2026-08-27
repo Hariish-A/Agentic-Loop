@@ -6,7 +6,7 @@
 #
 # Env override convention: AGENTIC_<SECTION>__<FIELD>, e.g.
 #     AGENTIC_LOOP__MAX_ITERATIONS=8
-#     AGENTIC_LLM__PRIMARY=grok
+#     AGENTIC_LLM__PRIMARY=ollama
 #
 # Nothing under src/agentic_rubric/core/ reads this file or os.environ directly.
 # The loop is handed a frozen AppConfig, which is what makes the model, limits
@@ -15,39 +15,33 @@
 
 llm:
   # Name of the provider to try first; must be a key under `providers`.
-  primary: gemini
-  # Ordered failover chain used by the harness when `primary` is unavailable.
-  fallbacks: [grok, ollama]
+  primary: groq
+  # Ordered failover chain used when `primary` is unavailable.
+  fallbacks: [ollama]
 
   providers:
-    gemini:
-      base_url: https://generativelanguage.googleapis.com/v1beta/openai/
-      model: gemini-2.5-flash
-      api_key_env: GEMINI_API_KEY
-      timeout_s: 60.0
+    groq:
+      # GroqCloud speaks the OpenAI chat-completions dialect.
+      # https://console.groq.com/docs/openai
+      base_url: https://api.groq.com/openai/v1
+      model: openai/gpt-oss-120b
+      api_key_env: GROQ_API_KEY
+      timeout_s: 90.0
       supports_tools: true
-
-    grok:
-      base_url: https://api.x.ai/v1
-      model: grok-4.20-fast
-      api_key_env: XAI_API_KEY
-      timeout_s: 60.0
-      supports_tools: true
+      # Groq explicitly does not accept messages[].name. Harmless today (each
+      # loop step sends a fresh conversation, so no tool-result turns are
+      # replayed) but declared so the client strips it rather than 400-ing the
+      # first time someone adds conversation replay.
+      supports_message_name: false
 
     ollama:
+      # Local fallback. Needs `ollama serve` and the model pulled.
       base_url: http://localhost:11434/v1
       model: qwen2.5:7b-instruct
       api_key_env: OLLAMA_API_KEY
       timeout_s: 180.0
       supports_tools: true
       requires_key: false
-
-    openai:
-      base_url: https://api.openai.com/v1
-      model: gpt-4o-mini
-      api_key_env: OPENAI_API_KEY
-      timeout_s: 60.0
-      supports_tools: true
 
     mock:
       # Deterministic scripted provider. No network, no key, used by the tests
@@ -59,8 +53,10 @@ llm:
       supports_tools: true
       requires_key: false
 
-  # Sampling defaults. Individual call sites may override (the judge runs
-  # colder than the reviser, because scoring should be reproducible).
+  # Sampling defaults. Individual call sites may override: the judge runs
+  # colder than the reviser, because scoring must be reproducible.
+  # Note: Groq converts temperature 0 to 1e-8, so the judge is near
+  # deterministic there rather than exactly deterministic.
   temperature: 0.3
   max_tokens: 2048
 
@@ -73,15 +69,23 @@ loop:
 
 memory:
   enabled: true
-  backend: sqlite_vec        # sqlite_vec | sqlite_fts | chroma | null
+  backend: sqlite_vec        # sqlite_vec | sqlite_fts | null
   db_path: data/memory.db
-  embedder: fastembed        # fastembed | gemini | none  (none => BM25 only)
+  embedder: fastembed        # fastembed | none  (none => BM25 keyword recall only)
   embed_model: BAAI/bge-small-en-v1.5
   recall_top_k: 5
   recall_min_score: 0.25
-  # Cross-session lessons are recalled globally; episodic records are not.
-  lesson_scope: global
-  episodic_scope: session
+  # Scope rules. Lessons are the Reflexion payload and outlive the session, so
+  # they are recalled across sessions but confined to the rubric that produced
+  # them. Episodic records are session-local noise and stay put.
+  lesson_scope: rubric       # rubric | global | session
+  episodic_scope: session    # session | global
+  # Lessons are few and curated, so they are ranked but NOT relevance-gated;
+  # the gate applies to episodic recall, which is voluminous. See
+  # docs/02_memory_design.md.
+  gate_lessons: false
+  max_lessons_per_recall: 3
+  vector_weight: 0.7         # blend when both vector and keyword channels hit
 
 retry:
   max_attempts: 4

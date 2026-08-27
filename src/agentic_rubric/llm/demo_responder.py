@@ -36,9 +36,14 @@ _TEXT_BLOCK = re.compile(
     re.DOTALL,
 )
 
+#: Recalled lessons reach the Reason prompt as
+#: ``  - [lesson | session ab12cd34, iter 2 | relevance 0.47] <content>``.
+_RECALLED_LESSON = re.compile(r"^\s*-\s*\[lesson\s*\|[^\]]*\]\s*(.+)$", re.MULTILINE)
+
 #: How much a targeted criterion improves per revision, and how much the rest
 #: drift up as a side effect of a general rewrite. Fractional so the simulated
 #: trajectory is smooth; the judge reports rounded integers, as a real one would.
+#: Tuned so the canned demo reaches target inside the default 6-iteration cap.
 FOCUS_GAIN = 2.0
 SPILLOVER_GAIN = 0.6
 
@@ -70,8 +75,10 @@ class ScriptedAgentResponder:
     last_percent: float | None = None
     needs_scoring: bool = True
     revisions: int = 0
+    explored: bool = False
     steps_seen: list[str] = field(default_factory=list)
     lessons_emitted: list[str] = field(default_factory=list)
+    lessons_applied: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not self.scores:
@@ -118,6 +125,20 @@ class ScriptedAgentResponder:
     # -- step routing -------------------------------------------------------
 
     @staticmethod
+    def recalled_lessons(call: MockCall) -> list[str]:
+        """Pull lessons out of the RECALLED FROM MEMORY block, if there is one.
+
+        The responder reads the prompt the same way a real model would, rather
+        than being handed the memory object. That is what makes the A/B demo
+        meaningful: the *only* difference between the two runs is what appeared
+        in the prompt.
+        """
+        prompt = call.messages[-1].content if call.messages else ""
+        if "RECALLED FROM MEMORY" not in prompt:
+            return []
+        return [match.strip() for match in _RECALLED_LESSON.findall(prompt)]
+
+    @staticmethod
     def classify(call: MockCall) -> str:
         names = {spec.name for spec in call.tools}
         if "submit_rubric_scores" in names:
@@ -142,7 +163,7 @@ class ScriptedAgentResponder:
             return self._reflect()
         if step == STEP_REVISE:
             return self._revise(call)
-        return self._reason()
+        return self._reason(call)
 
     # -- per-step behaviour -------------------------------------------------
 
@@ -172,7 +193,7 @@ class ScriptedAgentResponder:
             ),
         )
 
-    def _reason(self) -> MockTurn:
+    def _reason(self, call: MockCall) -> MockTurn:
         if self.needs_scoring or self.last_percent is None:
             return MockTurn(
                 tool_calls=(
@@ -203,25 +224,54 @@ class ScriptedAgentResponder:
                 )
             )
 
+        lessons = self.recalled_lessons(call)
+
+        # THE MEMORY EFFECT, effect 1 of 2: exploration is skipped when the
+        # agent already knows where the points are. With no prior experience it
+        # spends a turn measuring the draft before committing to an edit; with a
+        # recalled lesson it goes straight to revising. That is one whole
+        # iteration saved, and it is visible in the transcript.
+        if not lessons and not self.explored:
+            self.explored = True
+            return MockTurn(
+                tool_calls=(
+                    tool_call(
+                        "analyze_text",
+                        thought=(
+                            "No prior experience with this rubric was recalled. Measure the "
+                            "draft directly before spending a revision on a guess."
+                        ),
+                    ),
+                )
+            )
+
         focus = self._headroom_ranked()[:2]
         self.pending_focus = focus
         names = ", ".join(self.rubric.criterion(c).name for c in focus)
-        return MockTurn(
-            tool_calls=(
-                tool_call(
-                    "revise_text",
-                    thought=(
-                        f"{names} carry the most weighted headroom at "
-                        f"{self.last_percent:.1f}%, so editing there buys the most points."
-                    ),
-                    focus_criteria=focus,
-                    instructions=(
-                        f"Rewrite to strengthen {names}: make the claim specific, attribute "
-                        "every figure, and cut hedging."
-                    ),
-                ),
+
+        # THE MEMORY EFFECT, effect 2 of 2: recalled lessons are handed to the
+        # reviser as apply_lessons, so they reach the rewrite prompt itself.
+        arguments: dict[str, t.Any] = {
+            "focus_criteria": focus,
+            "instructions": (
+                f"Rewrite to strengthen {names}: make the claim specific, attribute "
+                "every figure, and cut hedging."
+            ),
+        }
+        if lessons:
+            arguments["apply_lessons"] = lessons[:2]
+            self.lessons_applied.extend(lessons[:2])
+            thought = (
+                f"Memory says: {lessons[0][:80]}... Applying that directly to "
+                f"{names} rather than rediscovering it."
             )
-        )
+        else:
+            thought = (
+                f"{names} carry the most weighted headroom at "
+                f"{self.last_percent:.1f}%, so editing there buys the most points."
+            )
+
+        return MockTurn(tool_calls=(tool_call("revise_text", thought=thought, **arguments),))
 
     def _revise(self, call: MockCall) -> MockTurn:
         source = call.messages[-1].content
