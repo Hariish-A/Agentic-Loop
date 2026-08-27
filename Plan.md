@@ -52,35 +52,36 @@ Every task has a stable ID (`P0-3`, `M2-5`, …) so progress entries can referen
 *Goal: four genuinely distinct steps, ≥2 tools, and a demo showing 3+ iterations with a rising score.*
 
 ### Domain model
-- [ ] **M1-1** `core/rubric.py` — `Rubric`, `RubricCriterion` dataclasses + YAML loader + weight-sum validation + `ScoreCard.weighted_percent()`
-- [ ] **M1-2** `core/state.py` — `Observation`, `Decision`, `ActionResult`, `Reflection`, `LoopState`, `RunResult`; `LoopState.advance()` is the feedback edge
+- [x] **M1-1** `core/rubric.py` — `Rubric`, `RubricCriterion` dataclasses + YAML loader + weight-sum validation + `ScoreCard.weighted_percent()`
+- [x] **M1-2** `core/state.py` — `Observation`, `Decision`, `ActionResult`, `Reflection`, `LoopState`, `RunResult`; `LoopState.advance()` is the feedback edge
 
 ### Tools (Tool Design, 10%)
-- [ ] **M1-3** `tools/` — registry + JSON Schemas + handlers for five tools:
+- [x] **M1-3** `tools/` — registry + JSON Schemas + handlers for five tools:
   - `score_against_rubric` (LLM judge, CoT: evidence → justification → score)
-  - `revise_text` (LLM, constrained rewrite targeting named criteria)
-  - `analyze_readability` (pure Python: Flesch, sentence-length variance, hedge/filler counts)
-  - `check_structure` (pure Python: rubric-declared regex probes — numbered steps, version strings, expected/actual)
-  - `finalize` (control tool; terminates the loop)
-  - Registry validates arguments against the schema *before* dispatch and returns typed `ToolError` on failure
+  - `revise_text` (LLM, constrained rewrite targeting named criteria; hosts the shallow-ToT branch)
+  - `analyze_text` (pure Python: Flesch, sentence-length variance, hedge/filler counts, **plus** the rubric's declared regex probes — `analyze_readability` and `check_structure` merged, since both answer "what is measurably true of this draft")
+  - `diff_drafts` (pure Python `difflib`: what the last revision actually changed)
+  - `finalize` (control tool; requests termination, which Reflect may decline)
+  - Schemas are built **from the rubric**, so criterion arguments carry an `enum` of real ids
+  - Registry validates arguments against the schema *before* dispatch; every failure mode returns `ActionResult(ok=False)` rather than raising
 
 ### The four steps (Loop Correctness, 25%)
-- [ ] **M1-4** `core/perceive.py` — **no LLM**. Normalises input, loads rubric, runs deterministic metrics, folds in the previous `Reflection`, recalls memory (stub until M2) → `Observation`
-- [ ] **M1-5** `core/reason.py` — **one LLM call**, forced tool-use, returns `Decision(thought, action, args)`; ReAct scratchpad of prior Thought/Action/Observation triples
-- [ ] **M1-6** `core/act.py` — pure dispatcher; no decision-making; captures result, error, timing
-- [ ] **M1-7** `core/reflect.py` — deterministic checks (score delta, plateau, target met) **plus** an LLM self-critique producing a reusable lesson → `Reflection(done, reason, lesson, next_focus)`
-- [ ] **M1-8** `core/loop.py` — wires the four; feeds `Reflection` into the next `Perceive`; terminates on `done` or `max_iterations`; tracks best-scoring draft throughout
-- [ ] **M1-9** `prompts/` — versioned prompt templates, one module per step, with the rubric rendered from YAML rather than hardcoded
+- [x] **M1-4** `core/perceive.py` — **no LLM**. Normalises input, loads rubric, runs deterministic metrics, folds in the previous `Reflection`, recalls memory (stub until M2) → `Observation`
+- [x] **M1-5** `core/reason.py` — **one LLM call**, forced tool-use, returns `Decision(thought, action, args)`; ReAct scratchpad of prior Thought/Action/Observation triples
+- [x] **M1-6** `core/act.py` — pure dispatcher; no decision-making; captures result, error, timing
+- [x] **M1-7** `core/reflect.py` — deterministic checks (score delta, plateau, target met) **plus** an LLM self-critique producing a reusable lesson → `Reflection(done, reason, lesson, next_focus)`
+- [x] **M1-8** `core/loop.py` — wires the four; feeds `Reflection` into the next `Perceive`; terminates on `done` or `max_iterations`; tracks best-scoring draft throughout
+- [x] **M1-9** `prompts/` — versioned prompt templates, one module per step, with the rubric rendered from YAML rather than hardcoded
 
 ### Patterns research (Patterns Understanding, 15%)
-- [ ] **M1-10** `docs/01_patterns_research.md` — ReAct, Reflexion, CoT, Tree of Thoughts, LATS: mechanism, loop shape, cost profile, failure modes, paper citation
-- [ ] **M1-11** Same doc: which patterns this loop applies and **why they fit a rubric-scoring task**; explicit, reasoned rejection of LATS; shallow-ToT branch documented as `loop.revise_candidates > 1`
+- [x] **M1-10** `docs/01_patterns_research.md` — ReAct, Reflexion, CoT, Tree of Thoughts, LATS: mechanism, loop shape, cost profile, failure modes, paper citation
+- [x] **M1-11** Same doc: which patterns this loop applies and **why they fit a rubric-scoring task**; explicit, reasoned rejection of LATS; shallow-ToT branch documented as `loop.revise_candidates > 1`
 
 ### Entry point + demo
-- [ ] **M1-12** `cli.py` — `--input --rubric --target --max-iters --provider --config`, dotted `--set key=value` overrides
-- [ ] **M1-13** End-to-end test against `MockProvider` proving ≥3 iterations, a rising score, and clean termination — no API key needed
-- [ ] **M1-14** Live demo run on `samples/weak_essay.txt`; capture transcript into `docs/demos/`
-- [ ] **M1-15** Commit + tag `milestone-1`
+- [x] **M1-12** `cli.py` — `--input --rubric --target --max-iters --provider --config`, dotted `--set key=value` overrides
+- [x] **M1-13** End-to-end test against `MockProvider` proving ≥3 iterations, a rising score, and clean termination — no API key needed
+- [x] **M1-14** Live demo run on `samples/weak_essay.txt`; capture transcript into `docs/demos/`
+- [x] **M1-15** Commit + tag `milestone-1`
 
 ---
 

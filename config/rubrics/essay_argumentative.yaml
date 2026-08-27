@@ -1,7 +1,13 @@
 # ---------------------------------------------------------------------------
 # Primary demo rubric: argumentative / academic essay.
+#
 # Scores are integers on `scale`; the weighted total is normalised to a
 # percentage so `loop.target_score` means the same thing for every rubric.
+#
+# `probes` are deterministic regex checks run by the analyze_text tool. They
+# give the agent grounded evidence that costs no tokens and cannot be
+# hallucinated, and they live beside the criterion they inform rather than
+# being hardcoded in Python.
 # ---------------------------------------------------------------------------
 id: essay_argumentative
 name: Argumentative Essay
@@ -43,6 +49,17 @@ criteria:
     improvement_hints:
       - Replace one general statement with a named example or figure.
       - Attribute every statistic to a source.
+    probes:
+      - id: has_figures
+        pattern: "\\d+(?:\\.\\d+)?\\s*(?:%|percent)|\\b(?:19|20)\\d{2}\\b"
+        describe: concrete figures or years cited
+        expect: present
+        min_count: 2
+      - id: has_attribution
+        pattern: "\\b(?:according to|reported by|found that|study by|survey of|et al)\\b"
+        describe: evidence attributed to a named source
+        expect: present
+        min_count: 1
 
   - id: reasoning
     name: Reasoning and Counterargument
@@ -57,6 +74,12 @@ criteria:
     improvement_hints:
       - Add a sentence after each example explaining what it proves.
       - Steelman one objection, then answer it.
+    probes:
+      - id: engages_objection
+        pattern: "\\b(?:critics argue|opponents|one objection|it is true that|admittedly|however|nevertheless|counterargument)\\b"
+        describe: an opposing view is engaged
+        expect: present
+        min_count: 1
 
   - id: organization
     name: Structure and Flow
@@ -85,3 +108,12 @@ criteria:
     improvement_hints:
       - Delete hedges such as "somewhat", "arguably", "it could be said".
       - Vary sentence length; break any sentence over 35 words.
+    probes:
+      - id: no_hedging
+        pattern: "\\b(?:somewhat|arguably|it could be said|perhaps|possibly|generally believed|in a sense|seems that|tends to|relatively|fairly)\\b"
+        describe: hedging phrases avoided
+        expect: absent
+      - id: no_filler
+        pattern: "\\b(?:there is|there are|the fact that|in order to|it is important to note|needless to say)\\b"
+        describe: filler constructions avoided
+        expect: absent

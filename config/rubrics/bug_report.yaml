@@ -1,7 +1,11 @@
 # ---------------------------------------------------------------------------
 # Secondary rubric: proves the agent is rubric-driven, not essay-specific.
 # Swapping domains is `--rubric config/rubrics/bug_report.yaml` and no code
-# change. Also the rubric where the deterministic structure tool earns its keep.
+# change.
+#
+# This is also the rubric where deterministic `probes` earn their keep: a bug
+# report's structure is checkable without an LLM, so the agent gets grounded,
+# zero-token evidence about what is missing.
 # ---------------------------------------------------------------------------
 id: bug_report
 name: Engineering Bug Report
@@ -28,6 +32,12 @@ criteria:
     improvement_hints:
       - Convert prose into a numbered list starting from a clean state.
       - Include the exact command, payload or file that triggers the bug.
+    probes:
+      - id: numbered_steps
+        pattern: "(?m)^\\s*\\d+[.)]\\s+\\S"
+        describe: numbered reproduction steps
+        expect: present
+        min_count: 2
 
   - id: expected_vs_actual
     name: Expected vs Actual
@@ -42,6 +52,12 @@ criteria:
     improvement_hints:
       - Add an explicit Expected and Actual section.
       - Paste the real error text, not a summary of it.
+    probes:
+      - id: expected_actual_labels
+        pattern: "\\b(?:expected|actual)\\b[ \\t]*(?:behaviour|behavior|result|output)?[ \\t]*:"
+        describe: explicit Expected and Actual labels
+        expect: present
+        min_count: 2
 
   - id: environment
     name: Environment Detail
@@ -56,6 +72,12 @@ criteria:
     improvement_hints:
       - Add exact version numbers for the app, runtime and OS.
       - State whether this is local, staging or production.
+    probes:
+      - id: version_strings
+        pattern: "\\bv?\\d+\\.\\d+(?:\\.\\d+)?\\b"
+        describe: pinned version numbers
+        expect: present
+        min_count: 2
 
   - id: impact
     name: Impact and Severity
@@ -70,6 +92,12 @@ criteria:
     improvement_hints:
       - Quantify how many users or requests are affected.
       - State whether a workaround exists.
+    probes:
+      - id: quantified_impact
+        pattern: "\\b\\d[\\d,.]*\\s*(?:%|percent|users?|requests?|sessions?|customers?|per (?:hour|day|minute))\\b"
+        describe: impact quantified with a figure
+        expect: present
+        min_count: 1
 
   - id: clarity_tone
     name: Clarity and Blameless Tone
@@ -84,3 +112,8 @@ criteria:
     improvement_hints:
       - Remove blame language; describe the system, not the author.
       - Label any hypothesis explicitly as a hypothesis.
+    probes:
+      - id: no_blame_language
+        pattern: "\\b(?:clearly did not|nobody ever|whoever wrote|obviously|incompetent|as usual|broken again|never seems to)\\b"
+        describe: blame language avoided
+        expect: absent

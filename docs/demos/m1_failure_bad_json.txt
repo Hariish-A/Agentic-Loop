@@ -1,0 +1,76 @@
+note: injected a bad_json failure into the reason step
+==== RUN START =========================================================================
+  run       : run_7c2c2fd55c94
+  session   : sess_fa664c9388ee
+  rubric    : essay_argumentative
+  provider  : mock:mock-1
+  memory    : NullMemory (disabled)
+  target    : 85%   max iterations: 6
+
+==== ITERATION 1 =======================================================================
+  PERCEIVE  [??????????????????????????????????]  unscored
+  REASON    -> score_against_rubric  [DEGRADED FALLBACK]
+            "[fallback] unparseable model output: tool arguments were not valid JSON
+            (injected); taking the safe read-only action score_against_rubric."
+  ACT       score_against_rubric [ok] (0 ms)
+            Scored 28.7%. Biggest opportunities: thesis 2/5 (18.8pts available),
+            evidence 2/5 (18.8pts available).
+  REFLECT   complete=False
+            next focus: thesis
+
+==== ITERATION 2 =======================================================================
+  PERCEIVE  [##########-------------------|----]  28.7%
+  REASON    -> revise_text
+            "Thesis and Position, Evidence and Support carry the most weighted headroom
+            at 28.7%, so editing there buys the most points."
+  ACT       revise_text [ok] (2 ms)
+            Revised for thesis, evidence: 202 -> 243 words (+41), similarity 0.95. The
+            draft is now unscored - score it to see the effect.
+  REFLECT   complete=False
+            LESSON: On this rubric, targeting the two highest-weighted criteria first
+            moves the total faster than fixing the lowest raw score.
+            next focus: reasoning
+
+==== ITERATION 3 =======================================================================
+  PERCEIVE  [??????????????????????????????????]  unscored
+  REASON    -> score_against_rubric
+            "The draft is unscored, so I cannot tell where the points are. Measure
+            first."
+  ACT       score_against_rubric [ok] (1 ms)
+            Scored 66.2%. Biggest opportunities: reasoning 3/5 (10.0pts available),
+            style_clarity 3/5 (7.5pts available).
+  REFLECT   complete=False  delta=+37.5pts
+            next focus: reasoning
+
+==== ITERATION 4 =======================================================================
+  PERCEIVE  [#######################------|----]  66.2%
+  REASON    -> revise_text
+            "Reasoning and Counterargument, Style and Clarity carry the most weighted
+            headroom at 66.2%, so editing there buys the most points."
+  ACT       revise_text [ok] (0 ms)
+            Revised for reasoning, style_clarity: 243 -> 284 words (+41), similarity
+            0.95. The draft is now unscored - score it to see the effect.
+  REFLECT   complete=False
+            LESSON: Unattributed figures score no better than no figures; naming the
+            source is what lifts the evidence criterion.
+            next focus: organization
+
+==== ITERATION 5 =======================================================================
+  PERCEIVE  [??????????????????????????????????]  unscored
+  REASON    -> score_against_rubric
+            "The draft is unscored, so I cannot tell where the points are. Measure
+            first."
+  ACT       score_against_rubric [ok] (0 ms)
+            Scored 96.2%. Biggest opportunities: organization 4/5 (3.8pts available),
+            thesis 5/5 (0.0pts available).
+  REFLECT   complete=True  delta=+30.0pts
+
+==== RUN COMPLETE ======================================================================
+  status      : target_reached
+  iterations  : 5
+  trajectory  : 28.7% -> 66.2% -> 96.2%
+  score       : 28.7% -> 96.2%  (+67.5 points)
+  best        : [#############################|###-]  target 85%
+  tokens      : 1,080 in / 540 out
+  elapsed     : 0.01s
+
