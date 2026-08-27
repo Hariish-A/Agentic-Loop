@@ -85,7 +85,7 @@ python -m agentic_rubric.cli --input samples/weak_essay.txt --provider mock
 Run the tests — no API key or network required:
 
 ```bash
-python -m pytest -q                        # 242 passed, in seconds
+python -m pytest -q                        # passes in seconds, no key needed
 python -m ruff check src tests scripts
 ```
 

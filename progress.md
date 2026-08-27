@@ -18,7 +18,7 @@ If a session ends abruptly, read **▶ Resume here** at the top, diff it against
 **Verify the checkout is healthy before continuing:**
 
 ```bash
-.venv/Scripts/python.exe -m pytest -q                      # expect: 242 passed
+.venv/Scripts/python.exe -m pytest -q                      # 226 at the tag, 242 with the browser demo
 .venv/Scripts/python.exe -m ruff check src tests scripts --exclude src/agentic_rubric/web
 .venv/Scripts/python.exe scripts/preflight.py              # config + provider chain
 .venv/Scripts/python.exe scripts/preflight.py --ping       # one real API call
@@ -35,7 +35,7 @@ docker compose config --quiet                              # compose is valid
 
 ## 2026-08-27 — Milestone 3: Harness Engineering ✅
 
-**Status:** complete · **Tasks:** M3-1 … M3-13 · **Tests:** 242 passing (58 new here) · **Lint:** clean
+**Status:** complete · **Tasks:** M3-1 … M3-13 · **Tests:** 226 passing at the tag (58 new here); 242 with the browser demo's tests in the working tree · **Lint:** clean
 
 ### Headline: the harness was proved without simulating anything
 
@@ -158,12 +158,13 @@ next to it in the config. Neither was anticipated — both came from running it 
 ### Verification evidence
 
 ```
-$ .venv/Scripts/python.exe -m pytest -q
-242 passed in 6.0s
-    test_config 12   test_harness 58   test_llm_layer 42   test_loop 30
-    test_memory 31   test_rubric 19    test_tools 34       test_web 16
-    (test_harness and the two new test_llm_layer cases are this milestone's;
-     test_web arrived with the browser demo, alongside but outside M3)
+$ .venv/Scripts/python.exe -m pytest -q     # at tag milestone-3
+226 passed in 5.3s
+    test_config 12   test_harness 58   test_llm_layer 42
+    test_loop 30     test_memory 31    test_rubric 19   test_tools 34
+    (test_harness and two new test_llm_layer cases are this milestone's. The
+     working tree also holds test_web's 16, from the browser demo, which is
+     not part of this commit -- 242 in the tree, 226 at the tag.)
 
 $ .venv/Scripts/python.exe -m ruff check src tests scripts --exclude src/agentic_rubric/web
 All checks passed!

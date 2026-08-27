@@ -399,10 +399,10 @@ Two changes, both earned rather than anticipated:
 ### Test coverage
 
 ```
-$ python -m pytest -q
-242 passed
-    test_config 12   test_harness 58   test_llm_layer 42   test_loop 30
-    test_memory 31   test_rubric 19    test_tools 34       test_web 16
+$ python -m pytest -q            # at tag milestone-3
+226 passed
+    test_config 12   test_harness 58   test_llm_layer 42
+    test_loop 30     test_memory 31    test_rubric 19   test_tools 34
 ```
 
 Every harness test runs offline against `MockProvider`, with every sleep injected. The suite needs
