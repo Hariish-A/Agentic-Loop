@@ -28,6 +28,13 @@ import typing as t
 from dataclasses import dataclass, field
 
 from ..core.rubric import Rubric
+from ..prompts import (
+    STEP_JUDGE,
+    STEP_REASON,
+    STEP_REFLECT,
+    STEP_REVISE,
+    classify_step,
+)
 from .mock import MockCall, MockTurn, tool_call
 from .types import LLMError
 
@@ -46,11 +53,6 @@ _RECALLED_LESSON = re.compile(r"^\s*-\s*\[lesson\s*\|[^\]]*\]\s*(.+)$", re.MULTI
 #: Tuned so the canned demo reaches target inside the default 6-iteration cap.
 FOCUS_GAIN = 2.0
 SPILLOVER_GAIN = 0.6
-
-STEP_JUDGE = "judge"
-STEP_REFLECT = "reflect"
-STEP_REASON = "reason"
-STEP_REVISE = "revise"
 
 
 @dataclass
@@ -146,14 +148,13 @@ class ScriptedAgentResponder:
 
     @staticmethod
     def classify(call: MockCall) -> str:
-        names = {spec.name for spec in call.tools}
-        if "submit_rubric_scores" in names:
-            return STEP_JUDGE
-        if "submit_reflection" in names:
-            return STEP_REFLECT
-        if names:
-            return STEP_REASON
-        return STEP_REVISE
+        """Which step is asking, inferred from the tools it offered.
+
+        Delegates to :func:`..prompts.classify_step`, which is the single
+        definition of that rule -- the harness's live fault injection reads it
+        too, and two copies would drift the first time a step's tool set moved.
+        """
+        return classify_step(spec.name for spec in call.tools)
 
     def __call__(self, call: MockCall) -> MockTurn:
         step = self.classify(call)

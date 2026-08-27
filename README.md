@@ -9,8 +9,8 @@ score, plateaus, or trips a guardrail.
 
 [![CI](https://github.com/Hariish-A/Agentic-Loop/actions/workflows/ci.yml/badge.svg)](https://github.com/Hariish-A/Agentic-Loop/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.10%20%7C%203.12-blue)
-![Tests](https://img.shields.io/badge/tests-303%20passing-brightgreen)
-![Coverage](https://img.shields.io/badge/coverage-91%25-brightgreen)
+![Tests](https://img.shields.io/badge/tests-316%20passing-brightgreen)
+![Coverage](https://img.shields.io/badge/coverage-90%25-brightgreen)
 ![Cost](https://img.shields.io/badge/running%20cost-%240-brightgreen)
 
 > **Status:** all four milestones complete. [Plan.md](Plan.md) is the task list;
@@ -34,7 +34,7 @@ also makes Reflexion a natural fit — the scalar reward that pattern assumes is
 | **Harness engineering** | [`harness/`](src/agentic_rubric/harness/), [docs/03](docs/03_harness_design.md) | **No retry, failover or budget logic anywhere in `core/`**; proved live by absorbing 15 real rate limits |
 | **Patterns understanding** | [docs/01](docs/01_patterns_research.md) | ReAct + Reflexion + CoT applied, shallow ToT optional, **LATS explicitly rejected** with reasons |
 | **Tool design** | [`tools/`](src/agentic_rubric/tools/) | Schemas generated **from the rubric**; two of five tools never call a model |
-| **Code quality** | `pytest`, `ruff`, `mypy` | 303 tests, 91% coverage, zero lint findings, `disallow_untyped_defs` clean |
+| **Code quality** | `pytest`, `ruff`, `mypy` | 316 tests, 90% coverage, zero lint findings, `disallow_untyped_defs` clean |
 
 ---
 
@@ -245,52 +245,62 @@ meaningful. Full write-up in [docs/02_memory_design.md](docs/02_memory_design.md
 
 ---
 
-## Browser demo
-
-A single command, no install step, no web framework, no API key:
+## The application
 
 ```bash
 python demo.py            # opens http://127.0.0.1:8000
 ```
 
-Built on `http.server` from the standard library. A demo whose first step is
-"pip install a web framework" is a demo that fails on the reviewer's machine.
+Built on `http.server` from the standard library. An application whose first step is
+"pip install a web framework" is one that fails on someone else's machine.
 
-The page drives the real loop and streams every step as it happens:
+**Live providers only.** There is no simulated mode. The deterministic `MockProvider` still backs
+the 300-odd tests — that is what keeps them free of an API key — but nothing the browser can send
+selects it. A UI that *can* quietly show you invented scores eventually will. If no provider is
+usable the page says so, names the missing environment variable, and disables the run button rather
+than falling back to something fake.
 
-| Panel | Shows |
+Every run goes through the **`Runner`**, not the bare loop, so retries, repairs, failovers,
+guardrail trips and the JSONL trace are all real and all on screen.
+
+| Tab | Shows |
 |---|---|
-| **Rubric** | Criteria, weights and probe counts, loaded from YAML — swap rubrics from the dropdown |
-| **Live transcript** | One card per iteration with all four steps: PERCEIVE (score bar, metrics, failing probes, **recalled memory**), REASON (chosen tool + thought + arguments), ACT (result or typed error), REFLECT (delta, plateau, **lesson stored**) |
-| **Summary** | Status, trajectory, action sequence, tokens, elapsed |
-| **Scorecards** | Per-criterion score, weight, headroom, and the judge's quoted evidence |
-| **Before / after** | Input vs the best-scoring draft ever seen |
-| **Memory** | Store stats, what this run wrote, and every stored lesson |
+| **Run** | One card per iteration with all four steps — PERCEIVE (score bar, metrics, failing probes, **recalled memory**), REASON (chosen tool, thought, arguments), ACT (result or typed error), REFLECT (delta, plateau, **lesson stored**). Harness events appear inline, in amber, next to the step that provoked them |
+| **Text** | **The transformation.** A stage strip — Original → Revision 1 → Revision 2 → the draft returned — with the full text at each stage, a **word-level diff** against the previous stage, which criteria that revision targeted, and the original vs the returned draft side by side |
+| **Scores** | Every scoring in order as a matrix, plus the final per-criterion card with the judge's quoted evidence |
+| **Memory** | Store health, what this run recalled and wrote, and every lesson held — with clear-session and wipe |
+| **Harness** | Retries, repairs, failovers, tool recoveries, the token-budget gauge, which guardrails tripped, and a line per recovery |
+| **Trace** | Every event, as written to `runs/<run_id>/trace.jsonl` |
+| **Setup** | The provider chain with a reason per link, the rubric's criteria and probes, the tool set **as the model sees it**, and the configuration in force |
 
-### Reproducing each concept from the demo
+### Seeing each concept
 
-| Concept | How to see it |
+| Concept | How |
 |---|---|
-| The loop iterates | Run any sample — the trajectory climbs across three scorings |
-| Rubrics are data | Switch to **Engineering Bug Report**; the tool schemas change with it |
-| Headroom, not raw score | Scorecards tab — the agent targets weight × remaining points |
-| Two LLM-free tools | Watch `analyze_text` and `diff_drafts` in the transcript |
-| Shallow Tree of Thoughts | Set **Revision candidates** to 3; ACT reports "chose the best of 3 candidates" |
-| Failure recovery | Inject `rate_limit` into `judge` — the tool fails, the agent re-scores next turn |
-| Degraded reasoning fallback | Inject `bad_json` into `reason` — REASON shows a **degraded fallback** badge |
-| **Cross-session memory** | Run with session `demo-a`, then change the session id to `demo-b` and run again |
-| Memory control | Untick **Memory enabled** — the run reverts to the cold behaviour |
-| The three memory ops | **Clear session** / **Wipe memory** buttons, plus the Memory tab's stats |
+| The loop iterates | Run any preset — the trajectory climbs across three scorings |
+| **How the text changed** | **Text** tab; step through the stages and read the diff |
+| Rubrics are data | Switch to **Engineering Bug Report**; the tool schemas in **Setup** change with it |
+| Headroom, not raw score | **Scores** tab — the agent targets weight × remaining points |
+| Two LLM-free tools | **Setup** marks `analyze_text` and `diff_drafts` as pure Python |
+| Shallow Tree of Thoughts | Set **Revise candidates** to 3; ACT reports "chose the best of 3 candidates" |
+| **Cross-session memory** | Run with session `demo-a`, change it to `demo-b`, run again — iteration 2 recalls a lesson the first run wrote |
+| Memory control | Untick **Memory enabled** — back to the cold behaviour |
+| The three memory ops | **Clear session** / **Wipe memory**, plus the Memory tab's stats |
+| **Failure recovery, live** | Pick any of the seven under **Inject a failure** — injected against the real provider, at the layer where the real thing happens |
+| Guardrails | Drop **Token budget** to ~900 — the run stops and still returns its best draft |
 
-The memory demonstration in one sequence:
+A real run against Groq's free tier, driven from this page:
 
-1. Press **Wipe memory**, then run with session `demo-a` → **6 iterations**, and
-   iteration 2 spends a turn on `analyze_text` because nothing was recalled.
-2. Change the session id to `demo-b` and run the same text again → **5 iterations**.
-   Iteration 2 now recalls a lesson written by `demo-a` (highlighted in purple) and
-   goes straight to `revise_text`, passing the lesson through as `apply_lessons`.
-3. Untick **Memory enabled** and run again → back to **6 iterations**, which is the
-   control proving the difference came from memory and not from run order.
+```
+trajectory  : 15.0% → 65.0% → 100.0%      status: target_reached
+harness     : retries=13 repairs=0 failovers=0
+stages      : Original 202w → Revision 1 264w (thesis, evidence)
+                            → Revision 2 182w (reasoning, style_clarity)  ← returned
+```
+
+Thirteen genuine rate limits, absorbed, with the whole thing visible on screen as it happened.
+
+---
 
 ## Harness
 
@@ -339,8 +349,8 @@ Full write-up in [docs/03_harness_design.md](docs/03_harness_design.md).
 ## Testing and quality
 
 ```bash
-pytest -q                                        # 303 tests, ~9s, no key, no network
-pytest --cov=agentic_rubric --cov-report=term    # 91% line coverage
+pytest -q                                        # 316 tests, ~11s, no key, no network
+pytest --cov=agentic_rubric --cov-report=term    # 90% line coverage
 ruff check src tests scripts                     # zero findings
 mypy                                             # disallow_untyped_defs, clean
 ```
@@ -356,7 +366,7 @@ mypy                                             # disallow_untyped_defs, clean
 | `test_render` | 26 | Every event the demo transcript shows, including harness recovery |
 | `test_config` | 12 | Four-layer precedence, unknown-key rejection, type coercion |
 | `test_rubric` | 19 | Weight validation, headroom maths, YAML loading |
-| `test_web` | 16 | The browser demo's endpoints |
+| `test_web` | 29 | The application's payloads, the streaming run, the text timeline |
 
 Every test runs against `MockProvider` with injected sleeps, so backoff bounds are asserted in
 milliseconds rather than waited through. [CI](.github/workflows/ci.yml) runs lint, types, the suite
@@ -393,7 +403,7 @@ src/agentic_rubric/
   core/          perceive / reason / act / reflect / loop   (Milestone 1)
   tools/         schemas, registry, handlers                (Milestone 1)
   memory/        episodic + lesson + profile stores         (Milestone 2)
-  web/           stdlib demo server + single-page UI
+  web/           stdlib server + the application UI
   harness/       retry, fallbacks, guardrails, faults,
                  loop detection, runner                     (Milestone 3)
   observability/ structured logging, JSONL traces, console  (Milestone 3)

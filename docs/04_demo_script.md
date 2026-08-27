@@ -218,7 +218,7 @@ elapsed     : 169.67s
 
 ---
 
-## Optional bonus — the browser demo · ~20s
+## Optional bonus — the application · ~20s
 
 Only if you are comfortably under time.
 
@@ -227,8 +227,12 @@ python demo.py       # http://127.0.0.1:8000
 ```
 
 Run once with session `demo-a`, then again with `demo-b`, and point at the recalled lesson
-highlighted in the Perceive panel. Note on camera that this view drives the loop **directly**, so it
-shows no harness events.
+highlighted in the Perceive panel. Then open the **Text** tab and step through the stages: original,
+each revision, and the draft the run returns, with a word-level diff between them.
+
+Worth saying on camera: this page runs against the **live provider only** — there is no simulated
+mode in it — and every run goes through the harness, so the amber lines in the transcript are real
+retries against a real API.
 
 ---
 

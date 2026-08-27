@@ -9,23 +9,119 @@ If a session ends abruptly, read **▶ Resume here** at the top, diff it against
 
 | | |
 |---|---|
-| **Last completed** | Milestone 4 — submission pass (M4-1 … M4-5, M4-7). CI, types, coverage, docs. |
-| **Next task** | **M4-5 (you)** — write `docs/solution.md`. The brief forbids an AI-written solution PDF, so the prose is yours; `docs/solution_evidence.md` holds every verified number so you are not re-deriving them. Render with `python scripts/make_pdf.py docs/solution.md`. |
+| **Last completed** | The application UI — the Milestone 1+2 demo page replaced with a real application, mock provider removed, everything driven by the live LLM. |
+| **Next task** | **M4-5 (you)** — write `docs/solution.md`; `docs/solution_evidence.md` holds every verified number. Render with `python scripts/make_pdf.py docs/solution.md`. |
 | **Then** | **M4-4** record the video from `docs/04_demo_script.md` · **M4-6** add the reviewer accounts as collaborators |
-| **Blocked on** | Nothing. **Pushed** to `Hariish-A/Agentic-Loop` — `main` at `92f2c4c` plus tags `milestone-1/2/3` — after the owner confirmed the repository is private. This is the first push carrying `.github/workflows/ci.yml`, so **check the Actions tab**: the `docker` job is the first real image build this project has had. |
-| **Known gap** | Docker has still never been built locally (engine down). `docker compose config` validates and the CI `docker` job builds and runs it, but no image has been produced on this machine. |
+| **Blocked on** | Nothing. Pushed to the private remote. |
+| **Known gap** | Docker has still never been built locally; the CI `docker` job is the first real build. |
 
 **Verify the checkout is healthy before continuing:**
 
 ```bash
-.venv/Scripts/python.exe -m pytest -q                      # expect: 303 passed
-.venv/Scripts/python.exe -m pytest -q --cov=agentic_rubric # expect: 91%
+.venv/Scripts/python.exe -m pytest -q                      # expect: 316 passed
 .venv/Scripts/python.exe -m ruff check src tests scripts   # expect: All checks passed!
 .venv/Scripts/python.exe -m mypy                           # expect: no issues in 53 files
 .venv/Scripts/python.exe scripts/preflight.py --ping       # one real API call
-.venv/Scripts/python.exe scripts/memory_ab_demo.py         # memory A/B, offline
-docker compose config --quiet                              # compose is valid
+.venv/Scripts/python.exe demo.py                           # the application, live only
 ```
+
+---
+
+## 2026-08-27 — The application UI ✅
+
+**Status:** complete · **Tests:** 316 passing (29 rewritten in `test_web.py`) · **Coverage:** 90%
+**Lint:** clean · **Types:** clean
+
+### What changed and why
+
+The Milestone 1+2 demo page was replaced with a real application. Three substantive changes, not
+a restyle:
+
+1. **The mock provider is gone from the application.** It was the *default* before, which meant the
+   page could show a full run of invented scores while looking exactly like a real one. `MockProvider`
+   still backs the 316 tests — that is what keeps them free of an API key — but nothing the browser
+   can send reaches it. With no key the page names the missing variable and disables the run button
+   rather than falling back to something fake. The **preset input texts are unchanged**; only the
+   simulated *provider* was removed.
+2. **Runs go through `Runner`, not `AgenticLoop`.** The old page called the bare loop, so it showed
+   no retries, no repairs, no failovers, no guardrail trips and wrote no trace. All of that is now
+   real and on screen.
+3. **The text transformation is the centrepiece.** A new **Text** tab shows a stage strip —
+   Original → each revision → the draft returned — with the full text at each stage, a word-level
+   diff against the previous one, and which criteria that revision targeted.
+
+### What was built
+
+| Area | File | Notes |
+|---|---|---|
+| Server | `web/server.py` | Rewritten. Live-only chain, `Runner`, 6 endpoints, trace and run history |
+| Draft timeline | `web/server.py::DraftRecorder` | Wraps the registry, snapshots the workspace after every dispatch |
+| Memory transparency | `web/server.py::RecallSpy` | Now also passes through `degraded` |
+| Live fault injection | `harness/faults.py::FaultyProvider` | Wraps *any* provider, so recovery demos are live |
+| Step naming | `prompts/__init__.py::classify_step` | One definition of "which step is asking", shared |
+| UI | `web/static/{index.html,app.css,app.js}` | Seven tabs, streaming NDJSON, word-level LCS diff |
+
+### Decisions made (and why)
+
+- **The offline provider is a test *parameter*, not an application *mode*.** `run_loop_streaming`
+  takes a `chain_factory`; the tests pass a deterministic one. There is no request the browser can
+  make that selects it. That keeps both properties: the suite runs with no key, and the application
+  cannot silently show simulated scores.
+- **Word-level diff, not line-level.** A revision rewrites sentences in place, so a line diff marks
+  every paragraph wholly changed and shows nothing. The LCS table is capped at 4M cells — a pasted
+  book falls back to a coarse before/after rather than hanging the tab.
+- **The recorder wraps the registry rather than the loop emitting the draft.** No loop event carries
+  the text (`revise_text` reports word counts and a similarity ratio), and putting a full draft on
+  every trace line to serve one UI panel would be the wrong trade.
+- **`classify_step` moved to `prompts/`.** Which tools a step offers is a fact about the prompts, and
+  both the offline responder and live fault injection need it. Two copies would drift the first time
+  a step's tool set moved.
+
+### Bugs found while wiring it up
+
+- **`FaultyRegistry(DraftRecorder(...))` silently emptied the text timeline.** Both classes copy
+  handlers out of the registry they wrap, so whichever ends up *outermost* is the one whose
+  `dispatch` runs. With the fault outside, the recorder's override never executed. Caught by a test
+  asserting the stages still contain a revision when a tool fault is injected — not by anything
+  raising.
+- **`RecallSpy` hid memory degradation.** The runner reads `getattr(memory, "degraded", False)`, and
+  the spy had no such attribute, so the harness panel reported a healthy store with the circuit
+  breaker open. That is the third time in this project a wrapper has hidden a failure from the thing
+  meant to report it.
+- **The rubric picker opened on bug reports.** `load_rubrics` sorted by filename, so an essay-first
+  tool defaulted to the wrong domain. Now ordered by the preset manifest.
+
+### Verification evidence
+
+A **live** run driven from the application (Groq free tier, session `ui-live-a`):
+
+```
+trajectory : 15.0% -> 65.0% -> 100.0%     status: target_reached
+harness    : retries=13 repairs=0 failovers=0    (13 genuine 429s, absorbed)
+recalled   : 2 -> 4 -> 5 records across iterations
+stages     : [0] Original    202w
+             [1] Revision 1  264w  iter 2  focus=[thesis, evidence]
+             [2] Revision 2  182w  iter 4  focus=[reasoning, style_clarity]  <- returned
+```
+
+A second run driven by **clicking the button in the page**, capped at 4 iterations, correctly
+returned `max_iterations_reached` rather than a success. DOM after it: 4 iteration cards, all four
+steps each, 10 harness events inline, 2 text stages with 13 insertions and 12 deletions in the diff,
+2 scoring rows, 40 trace rows, 7 memory-recall blocks.
+
+Layout checked programmatically (the browser pane would not composite screenshots here): dark theme
+applied, 340px sidebar grid, no horizontal overflow, no oversized elements, tab switching correct.
+
+### Open items carried forward
+
+- **No screenshot was taken.** The preview pane in this environment would not composite frames, so
+  the UI was verified through the DOM and computed layout instead of visually. **Open it and look.**
+- **`web/server.py` is at 63% coverage.** The payload builders and the streaming run are covered;
+  the `BaseHTTPRequestHandler` routing methods are exercised only through the browser. Testing them
+  means standing up a socket server in the suite, which buys little — the routes are six one-liners
+  that call functions already under test.
+- **A live run takes two to three minutes** on the free tier, most of it honoured backoff. The page
+  streams, so it is watchable, but it is not snappy and that is the provider, not the code.
 
 ---
 

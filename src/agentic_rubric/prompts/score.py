@@ -21,8 +21,12 @@ import typing as t
 from ..core.rubric import Rubric
 from ..llm.types import Message, ToolSpec, system, user
 
+#: Named separately because it is the wire signature the step is recognised by.
+#: See :func:`..prompts.classify_step`.
+SUBMIT_SCORES_TOOL = "submit_rubric_scores"
+
 SUBMIT_SCORES = ToolSpec(
-    name="submit_rubric_scores",
+    name=SUBMIT_SCORES_TOOL,
     description="Submit one score per rubric criterion, with the evidence behind each.",
     parameters={
         "type": "object",
@@ -122,4 +126,4 @@ def build_messages(
     ]
 
 
-__all__ = ["SUBMIT_SCORES", "SYSTEM", "build_messages"]
+__all__ = ["SUBMIT_SCORES", "SUBMIT_SCORES_TOOL", "SYSTEM", "build_messages"]

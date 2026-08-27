@@ -25,11 +25,14 @@ from ..core.rubric import Rubric
 from ..core.state import ActionResult, Decision, Observation
 from ..llm.types import Message, ToolSpec, system, user
 
+#: The wire signature this step is recognised by. See ``prompts.classify_step``.
+SUBMIT_REFLECTION_TOOL = "submit_reflection"
+
 
 def build_spec(rubric: Rubric) -> ToolSpec:
     """Reflection schema, with ``next_focus`` constrained to real criterion ids."""
     return ToolSpec(
-        name="submit_reflection",
+        name=SUBMIT_REFLECTION_TOOL,
         description="Record what this iteration achieved and what should happen next.",
         parameters={
             "type": "object",
@@ -153,4 +156,4 @@ def build_messages(
     ]
 
 
-__all__ = ["SYSTEM", "build_messages", "build_spec"]
+__all__ = ["SUBMIT_REFLECTION_TOOL", "SYSTEM", "build_messages", "build_spec"]

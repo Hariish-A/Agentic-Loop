@@ -30,13 +30,18 @@ from __future__ import annotations
 import typing as t
 from dataclasses import dataclass, field
 
+from ..llm.base import LLMProvider
 from ..llm.types import (
     LLMParseError,
+    LLMResponse,
+    Message,
     ProviderUnavailableError,
     RateLimitError,
+    ToolSpec,
     TransientServerError,
 )
 from ..memory.base import MemoryRecord, MemoryStore
+from ..prompts import STEP_JUDGE, STEPS, classify_step
 from ..tools.registry import Handler, ToolContext, ToolOutput, ToolRegistry
 
 #: Kinds injected at the LLM layer, via the mock responder's ``fail_on``.
@@ -53,31 +58,96 @@ SIMULATED_TOKEN_BUDGET = 900
 #: The tool a simulated tool failure targets: the one whose failure matters.
 FAULTY_TOOL = "revise_text"
 
+#: Steps a provider-layer fault can be aimed at.
+FAULT_STEPS = STEPS
 
-def llm_failure(kind: str, message: str = "") -> Exception:
+
+def llm_failure(kind: str, message: str = "", *, provider: str = "mock") -> Exception:
     """Build an injectable provider-layer failure by name."""
     registry: dict[str, Exception] = {
         "rate_limit": RateLimitError(
             message or "429 Too Many Requests (injected)",
-            provider="mock",
+            provider=provider,
             status=429,
             retry_after_s=0.05,
         ),
         "server_error": TransientServerError(
-            message or "503 Service Unavailable (injected)", provider="mock", status=503
+            message or "503 Service Unavailable (injected)", provider=provider, status=503
         ),
         "bad_json": LLMParseError(
             message or "tool arguments were not valid JSON (injected)",
             raw="{unterminated",
-            provider="mock",
+            provider=provider,
         ),
         "provider_down": ProviderUnavailableError(
-            message or "connection refused (injected)", provider="mock"
+            message or "connection refused (injected)", provider=provider
         ),
     }
     if kind not in registry:
         raise ValueError(f"unknown LLM failure kind {kind!r}; known: {sorted(registry)}")
     return registry[kind]
+
+
+class FaultyProvider(LLMProvider):
+    """Wraps any provider and fails a named step once, then behaves normally.
+
+    Exists because failure injection used to live in the mock responder, which
+    made every recovery demo an offline demo. That is a weaker claim than it
+    looks: proving the harness recovers from a *scripted* 429 says nothing about
+    a real request. This decorator sits over the live client instead, so the
+    same ladder is exercised against the same provider the run is really using.
+
+    Which step is failing is inferred from the tools the request offered, using
+    the one definition of that rule in :func:`...prompts.classify_step` -- the
+    prompts stay free of markers that exist only for demos.
+    """
+
+    def __init__(
+        self,
+        inner: LLMProvider,
+        *,
+        kind: str,
+        step: str = STEP_JUDGE,
+        times: int = 1,
+    ) -> None:
+        self.inner = inner
+        self.name = inner.name
+        self.model = inner.model
+        self.supports_tools = inner.supports_tools
+        self.kind = kind
+        self.step = step
+        self.remaining = times
+        self.injected = 0
+
+    def complete(
+        self,
+        messages: t.Sequence[Message],
+        *,
+        tools: t.Sequence[ToolSpec] | None = None,
+        tool_choice: t.Any = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> LLMResponse:
+        if self.remaining > 0 and classify_step(
+            spec.name for spec in (tools or ())
+        ) == self.step:
+            self.remaining -= 1
+            self.injected += 1
+            raise llm_failure(self.kind, provider=self.inner.name)
+        return self.inner.complete(
+            messages,
+            tools=tools,
+            tool_choice=tool_choice,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+    def close(self) -> None:
+        self.inner.close()
+
+    def describe(self) -> str:
+        pending = " [fault pending]" if self.remaining > 0 else " [fault fired]"
+        return f"{self.inner.describe()}{pending}"
 
 
 class FaultyRegistry(ToolRegistry):
@@ -170,6 +240,8 @@ class FaultyMemory(MemoryStore):
 __all__ = [
     "FAILURE_KINDS",
     "FAULTY_TOOL",
+    "FAULT_STEPS",
+    "FaultyProvider",
     "LLM_KINDS",
     "SIMULATED_TOKEN_BUDGET",
     "STACK_KINDS",

@@ -9,7 +9,14 @@ Entry point: :class:`~.runner.Runner`.
 """
 
 from .fallbacks import ProviderChain, ResilientProvider, ToolRecovery
-from .faults import FAILURE_KINDS, FaultyMemory, FaultyRegistry, llm_failure
+from .faults import (
+    FAILURE_KINDS,
+    FAULT_STEPS,
+    FaultyMemory,
+    FaultyProvider,
+    FaultyRegistry,
+    llm_failure,
+)
 from .guardrails import Guardrails
 from .loop_detect import StuckDetector, StuckVerdict
 from .retry import RetryPolicy, call_with_retry, is_retryable
@@ -17,7 +24,9 @@ from .runner import Runner, RunnerReport
 
 __all__ = [
     "FAILURE_KINDS",
+    "FAULT_STEPS",
     "FaultyMemory",
+    "FaultyProvider",
     "FaultyRegistry",
     "Guardrails",
     "ProviderChain",

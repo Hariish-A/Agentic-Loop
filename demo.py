@@ -1,12 +1,16 @@
-"""One-command launcher for the browser demo.
+"""One-command launcher for the application.
 
     python demo.py                 # http://127.0.0.1:8000
     python demo.py --port 8080
     python demo.py --no-browser
 
-Exists so the demo is a single command from a fresh checkout: it puts ``src`` on
-the path, loads ``.env``, and opens a browser. No install step, no PYTHONPATH,
-no web framework.
+Exists so the application is a single command from a fresh checkout: it puts
+``src`` on the path, loads ``.env``, and opens a browser. No install step, no
+PYTHONPATH, no web framework.
+
+Runs against a live provider only -- there is no simulated mode here. Set
+``GROQ_API_KEY`` in ``.env`` first, or start ``ollama serve`` for the local
+fallback; the page reports which link in the chain is missing.
 """
 
 from __future__ import annotations
@@ -33,7 +37,8 @@ def main() -> int:
 
         load_dotenv(ROOT / ".env")
     except ImportError:
-        pass  # the mock provider needs no keys
+        # Not fatal: the key may already be exported in the environment.
+        print("note: python-dotenv is not installed; reading keys from the environment only")
 
     from agentic_rubric.web.server import serve
 
@@ -43,9 +48,9 @@ def main() -> int:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
 
     print("=" * 64)
-    print("  Agentic Rubric Loop - Milestone 1 & 2 demo")
+    print("  Agentic Rubric Loop")
     print(f"  {url}")
-    print("  Provider 'mock' needs no API key. Set GROQ_API_KEY in .env for live runs.")
+    print("  Live providers only. Set GROQ_API_KEY in .env, or run `ollama serve`.")
     print("=" * 64)
     serve(args.host, args.port)
     return 0
