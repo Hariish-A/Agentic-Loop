@@ -1,0 +1,11 @@
+Subject: login broken
+
+The login is broken again. I tried to log in this morning and it did not work,
+it just showed an error. This has happened before and nobody ever seems to fix
+it properly. Whoever wrote the auth service clearly did not test it.
+
+It works sometimes but not always. I think it might be a database issue or maybe
+something to do with the new deployment. Pretty urgent, a lot of people are
+complaining about it.
+
+Please fix ASAP.

@@ -1,0 +1,86 @@
+# ---------------------------------------------------------------------------
+# Secondary rubric: proves the agent is rubric-driven, not essay-specific.
+# Swapping domains is `--rubric config/rubrics/bug_report.yaml` and no code
+# change. Also the rubric where the deterministic structure tool earns its keep.
+# ---------------------------------------------------------------------------
+id: bug_report
+name: Engineering Bug Report
+domain: software_engineering
+description: >
+  Evaluates whether a bug report gives a maintainer everything needed to
+  reproduce, triage and fix the problem without a follow-up round trip.
+scale:
+  min: 1
+  max: 5
+target_score: 85.0
+
+criteria:
+  - id: reproducibility
+    name: Reproduction Steps
+    weight: 0.30
+    description: >
+      Numbered, deterministic steps a stranger could follow to see the failure,
+      including the starting state and the exact input used.
+    levels:
+      1: No steps; only a description of the symptom.
+      3: Steps present but ambiguous, or missing the starting state or input.
+      5: Numbered, unambiguous, self-contained steps with concrete inputs.
+    improvement_hints:
+      - Convert prose into a numbered list starting from a clean state.
+      - Include the exact command, payload or file that triggers the bug.
+
+  - id: expected_vs_actual
+    name: Expected vs Actual
+    weight: 0.25
+    description: >
+      Both behaviours stated explicitly and separately, with the verbatim error
+      or output rather than a paraphrase.
+    levels:
+      1: Only "it does not work"; neither side is stated.
+      3: One side stated, or both paraphrased without the real output.
+      5: Both stated explicitly, with the verbatim message or stack trace.
+    improvement_hints:
+      - Add an explicit Expected and Actual section.
+      - Paste the real error text, not a summary of it.
+
+  - id: environment
+    name: Environment Detail
+    weight: 0.15
+    description: >
+      Versions, platform, configuration and deployment mode - enough to tell a
+      local quirk from a real defect.
+    levels:
+      1: No environment information at all.
+      3: Partial - for example an OS but no version numbers.
+      5: Application, runtime, OS and relevant config all pinned to versions.
+    improvement_hints:
+      - Add exact version numbers for the app, runtime and OS.
+      - State whether this is local, staging or production.
+
+  - id: impact
+    name: Impact and Severity
+    weight: 0.15
+    description: >
+      Who is affected, how often, and what the business or user consequence is,
+      plus any workaround.
+    levels:
+      1: No indication of scope or consequence.
+      3: Vague severity claim with no supporting frequency or scope.
+      5: Quantified scope and frequency, with workaround status stated.
+    improvement_hints:
+      - Quantify how many users or requests are affected.
+      - State whether a workaround exists.
+
+  - id: clarity_tone
+    name: Clarity and Blameless Tone
+    weight: 0.15
+    description: >
+      Factual, specific and blameless. Penalise accusation, speculation
+      presented as fact, and unexplained jargon.
+    levels:
+      1: Accusatory or speculative; hard to separate fact from opinion.
+      3: Mostly factual but with editorialising or unlabelled guesses.
+      5: Purely factual, blameless, with speculation clearly labelled.
+    improvement_hints:
+      - Remove blame language; describe the system, not the author.
+      - Label any hypothesis explicitly as a hypothesis.

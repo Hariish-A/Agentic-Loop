@@ -1,0 +1,10 @@
+# --- core runtime (Phase 0 / Milestone 1) ---
+httpx>=0.27,<1.0          # raw HTTP to any OpenAI-compatible endpoint
+PyYAML>=6.0,<7.0          # config + rubric files
+
+# --- Milestone 2 (memory) ---
+sqlite-vec>=0.1.6         # vector search inside the same SQLite file
+fastembed>=0.4.2          # ONNX MiniLM embeddings, no PyTorch (~50MB)
+
+# --- Milestone 3 (harness) ---
+python-dotenv>=1.0,<2.0   # .env loading

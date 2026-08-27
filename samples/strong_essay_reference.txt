@@ -1,0 +1,4 @@
+Reference text used only for eyeballing the scorer, never fed to the loop.
+A high-scoring essay should state a specific arguable claim in its first two
+sentences, attribute every figure to a named source, explain what each piece of
+evidence proves, steelman the strongest objection, and vary sentence length.

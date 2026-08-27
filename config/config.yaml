@@ -1,0 +1,105 @@
+# ---------------------------------------------------------------------------
+# Runtime configuration for the rubric scoring/improvement agent.
+#
+# Precedence (highest wins):
+#     CLI flags  >  environment variables  >  this file  >  dataclass defaults
+#
+# Env override convention: AGENTIC_<SECTION>__<FIELD>, e.g.
+#     AGENTIC_LOOP__MAX_ITERATIONS=8
+#     AGENTIC_LLM__PRIMARY=grok
+#
+# Nothing under src/agentic_rubric/core/ reads this file or os.environ directly.
+# The loop is handed a frozen AppConfig, which is what makes the model, limits
+# and backends swappable without touching loop code.
+# ---------------------------------------------------------------------------
+
+llm:
+  # Name of the provider to try first; must be a key under `providers`.
+  primary: gemini
+  # Ordered failover chain used by the harness when `primary` is unavailable.
+  fallbacks: [grok, ollama]
+
+  providers:
+    gemini:
+      base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+      model: gemini-2.5-flash
+      api_key_env: GEMINI_API_KEY
+      timeout_s: 60.0
+      supports_tools: true
+
+    grok:
+      base_url: https://api.x.ai/v1
+      model: grok-4.20-fast
+      api_key_env: XAI_API_KEY
+      timeout_s: 60.0
+      supports_tools: true
+
+    ollama:
+      base_url: http://localhost:11434/v1
+      model: qwen2.5:7b-instruct
+      api_key_env: OLLAMA_API_KEY
+      timeout_s: 180.0
+      supports_tools: true
+      requires_key: false
+
+    openai:
+      base_url: https://api.openai.com/v1
+      model: gpt-4o-mini
+      api_key_env: OPENAI_API_KEY
+      timeout_s: 60.0
+      supports_tools: true
+
+    mock:
+      # Deterministic scripted provider. No network, no key, used by the tests
+      # and by `--provider mock` for an offline end-to-end demo.
+      base_url: ""
+      model: mock-1
+      api_key_env: ""
+      timeout_s: 1.0
+      supports_tools: true
+      requires_key: false
+
+  # Sampling defaults. Individual call sites may override (the judge runs
+  # colder than the reviser, because scoring should be reproducible).
+  temperature: 0.3
+  max_tokens: 2048
+
+loop:
+  max_iterations: 6          # hard cap, enforced by the harness not the model
+  target_score: 85.0         # percent of the weighted rubric maximum
+  min_improvement: 1.0       # points; smaller deltas count as a plateau
+  plateau_patience: 2        # consecutive plateau iterations before stopping
+  revise_candidates: 1       # >1 enables the shallow Tree-of-Thoughts branch
+
+memory:
+  enabled: true
+  backend: sqlite_vec        # sqlite_vec | sqlite_fts | chroma | null
+  db_path: data/memory.db
+  embedder: fastembed        # fastembed | gemini | none  (none => BM25 only)
+  embed_model: BAAI/bge-small-en-v1.5
+  recall_top_k: 5
+  recall_min_score: 0.25
+  # Cross-session lessons are recalled globally; episodic records are not.
+  lesson_scope: global
+  episodic_scope: session
+
+retry:
+  max_attempts: 4
+  base_delay_s: 1.0
+  max_delay_s: 30.0
+  jitter: full               # full | equal | none
+  retry_on_status: [408, 409, 425, 429, 500, 502, 503, 504]
+
+guardrails:
+  token_budget: 200000       # per run, across every LLM call
+  token_warn_ratio: 0.8
+  wall_clock_timeout_s: 600
+  max_input_chars: 20000
+  repeat_action_threshold: 3 # identical (action,args) N times => stuck
+  stuck_score_epsilon: 0.5
+
+logging:
+  level: INFO
+  format: json               # json | console
+  trace_dir: runs
+  redact_keys: [api_key, authorization]

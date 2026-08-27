@@ -1,0 +1,87 @@
+# ---------------------------------------------------------------------------
+# Primary demo rubric: argumentative / academic essay.
+# Scores are integers on `scale`; the weighted total is normalised to a
+# percentage so `loop.target_score` means the same thing for every rubric.
+# ---------------------------------------------------------------------------
+id: essay_argumentative
+name: Argumentative Essay
+domain: academic_writing
+description: >
+  Evaluates a short argumentative essay on the strength of its claim, the
+  quality of its support, and the clarity of its prose.
+scale:
+  min: 1
+  max: 5
+# Optional per-rubric default; the CLI --target flag overrides it.
+target_score: 85.0
+
+criteria:
+  - id: thesis
+    name: Thesis and Position
+    weight: 0.25
+    description: >
+      Is there a single, specific, arguable claim, stated early and sustained
+      throughout? Vague or purely descriptive openings score low.
+    levels:
+      1: No identifiable claim; the text only describes or summarises.
+      3: A claim exists but is broad, hedged, or drifts by the conclusion.
+      5: A precise, arguable thesis stated up front and carried consistently.
+    improvement_hints:
+      - Name the specific position in the first two sentences.
+      - Remove hedges that make the claim unfalsifiable.
+
+  - id: evidence
+    name: Evidence and Support
+    weight: 0.25
+    description: >
+      Are claims backed by concrete, attributable, relevant support - data,
+      named examples, cited sources - rather than assertion?
+    levels:
+      1: Assertion only; no examples, figures or sources.
+      3: Some examples, but generic, unattributed, or loosely connected.
+      5: Specific, attributed evidence that directly supports each claim.
+    improvement_hints:
+      - Replace one general statement with a named example or figure.
+      - Attribute every statistic to a source.
+
+  - id: reasoning
+    name: Reasoning and Counterargument
+    weight: 0.20
+    description: >
+      Does the text explain how evidence supports the claim, and does it engage
+      seriously with the strongest opposing view?
+    levels:
+      1: Evidence is dropped in without interpretation; no counterargument.
+      3: Some linking analysis; counterargument is mentioned but strawmanned.
+      5: Explicit warrants throughout; the strongest objection is fairly met.
+    improvement_hints:
+      - Add a sentence after each example explaining what it proves.
+      - Steelman one objection, then answer it.
+
+  - id: organization
+    name: Structure and Flow
+    weight: 0.15
+    description: >
+      Do paragraphs each carry one idea, in a deliberate order, with transitions
+      that signal the logical relationship between them?
+    levels:
+      1: Ideas arrive in no discernible order; paragraphs mix several topics.
+      3: Recognisable structure, but transitions are mechanical or missing.
+      5: Purposeful progression; every paragraph earns its position.
+    improvement_hints:
+      - Give each paragraph a topic sentence.
+      - Replace additive transitions with causal ones where the logic warrants.
+
+  - id: style_clarity
+    name: Style and Clarity
+    weight: 0.15
+    description: >
+      Is the prose concise, concrete and readable? Penalise hedging, filler,
+      nominalisation and unvarying sentence length.
+    levels:
+      1: Dense, repetitive, heavily hedged; meaning is hard to recover.
+      3: Generally clear but wordy, with noticeable filler or hedging.
+      5: Concise and varied; every sentence carries weight.
+    improvement_hints:
+      - Delete hedges such as "somewhat", "arguably", "it could be said".
+      - Vary sentence length; break any sentence over 35 words.
