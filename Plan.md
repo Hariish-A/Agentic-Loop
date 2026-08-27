@@ -107,33 +107,34 @@ Every task has a stable ID (`P0-3`, `M2-5`, …) so progress entries can referen
 *Goal: safe to run unsupervised. Four areas, each with a named failure mode it defends against.*
 
 ### Retry
-- [ ] **M3-1** `harness/retry.py` — exponential backoff + full/equal jitter, `Retry-After` honoured, attempt cap, retryable-vs-terminal classification, separate policies for LLM calls and tool calls
+- [x] **M3-1** `harness/retry.py` — exponential backoff + full/equal jitter, `Retry-After` honoured, attempt cap, retryable-vs-terminal classification, separate policies for LLM calls and tool calls
 
 ### Fallbacks (one defined path per failure mode)
-- [ ] **M3-2** `harness/fallbacks.py`  *(memory circuit breaker already done in `memory/manager.py`)*
+- [x] **M3-2** `harness/fallbacks.py`  *(memory circuit breaker already done in `memory/manager.py`)*
   - Unparseable LLM output → forced schema → local salvage → one repair call → safe default action
   - Tool failure → structured `ToolError` fed back as an observation → sanitised retry → mark degraded, route to alternative
   - Iteration cap → return **best draft seen**, `status=max_iterations_reached`
   - Memory read failure → circuit-breaker to no-op store, `degraded_memory=true`, loop continues
   - Token budget exhausted → forced graceful `finalize`
-  - Provider unavailable → walk the failover chain (`groq → ollama`)  *(already implemented in `cli.resolve_provider`; M3 moves it inside the run loop)*
+  - Provider unavailable → walk the failover chain (`groq → ollama`), now **inside** the run loop and sticky
+  - Also landed: `harness/faults.py` (injection for all seven kinds) and a 404-vs-400 failover rule
 
 ### Observability
-- [ ] **M3-3** `observability/logger.py` — structured JSON logger with secret redaction
-- [ ] **M3-4** `observability/trace.py` — one JSONL event per step per iteration: `run_id, session_id, iteration, step, tool, duration_ms, tokens, cost_est, error, retry_count`; per-run `runs/<run_id>/trace.jsonl` + `summary.json`
-- [ ] **M3-5** `observability/render.py` — human-readable console view for the demo video
+- [x] **M3-3** `observability/logger.py` — structured JSON logger with secret redaction
+- [x] **M3-4** `observability/trace.py` — one JSONL event per step per iteration: `run_id, session_id, iteration, step, tool, duration_ms, tokens, cost_est, error, retry_count`; per-run `runs/<run_id>/trace.jsonl` + `summary.json`
+- [x] **M3-5** `observability/render.py` — human-readable console view for the demo video
 
 ### Guardrails
-- [ ] **M3-6** `harness/guardrails.py` — hard iteration cap enforced outside the model, token/cost budget with 80% warning, wall-clock timeout, input truncation
-- [ ] **M3-7** `harness/loop_detect.py` — repeated `(action, args)` signature, score plateau within `stuck_score_epsilon`, near-identical draft hash → `status=stuck`
+- [x] **M3-6** `harness/guardrails.py` — hard iteration cap enforced outside the model, token/cost budget with 80% warning, wall-clock timeout, input truncation
+- [x] **M3-7** `harness/loop_detect.py` — repeated `(action, args)` signature, score plateau within `stuck_score_epsilon`, near-identical draft hash → `status=stuck`
 
 ### Integration
-- [ ] **M3-8** `harness/runner.py` — composes retry + fallbacks + guardrails + tracing around the loop; the loop itself stays free of `try/except` sprawl
-- [ ] **M3-9** `--simulate-failure {rate_limit,bad_json,tool_error,memory_down,provider_down,budget}` for on-camera failure demos
-- [ ] **M3-10** `Dockerfile` (python:3.12-slim, non-root, layer-cached deps) + `docker-compose.yml` + volumes for `data/` and `runs/`
-- [ ] **M3-11** `docs/03_harness_design.md` — each engineering decision paired with the failure mode it defends against
-- [ ] **M3-12** Tests: backoff timing bounds, jitter spread, terminal-vs-retryable, each fallback path, budget trip, stuck detection
-- [ ] **M3-13** Commit + tag `milestone-3`
+- [x] **M3-8** `harness/runner.py` — composes retry + fallbacks + guardrails + tracing around the loop; the loop itself stays free of `try/except` sprawl. *Attaches through two new seams on `AgenticLoop` (`controller`, `act_fn`), both defaulting to "no harness" — eleven lines in `core/loop.py`.*
+- [x] **M3-9** `--simulate-failure {rate_limit,server_error,bad_json,provider_down,tool_error,memory_down,budget}` for on-camera failure demos. *Seven kinds, not six: `server_error` was already there and earns its place separately from `rate_limit` (no `Retry-After` header, so it exercises computed backoff rather than the honoured hint).*
+- [x] **M3-10** `Dockerfile` (python:3.12-slim, non-root, layer-cached deps) + `docker-compose.yml` + volumes for `data/` and `runs/`
+- [x] **M3-11** `docs/03_harness_design.md` — each engineering decision paired with the failure mode it defends against
+- [x] **M3-12** Tests: backoff timing bounds, jitter spread, terminal-vs-retryable, each fallback path, budget trip, stuck detection
+- [x] **M3-13** Commit + tag `milestone-3`
 
 ---
 

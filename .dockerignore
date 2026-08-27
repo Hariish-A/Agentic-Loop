@@ -10,6 +10,15 @@ __pycache__
 runs/*
 data/*.db
 docs/
+tests/
 *.md
 !README.md
+# .env is excluded from the image on purpose: keys arrive at *run* time via
+# `env_file` / `-e`, never baked into a layer that could be pushed.
 .env
+.env.*
+# The model cache is built inside the image by scripts/warm_models.py; copying
+# the host's would make the build depend on whatever is lying around locally.
+models/
+Dockerfile
+docker-compose.yml

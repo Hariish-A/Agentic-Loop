@@ -81,6 +81,15 @@ def recall_context(
     except Exception as exc:  # noqa: BLE001 - degrade, never fail the run
         return (), [f"memory recall failed ({type(exc).__name__}: {exc}); continuing without it"]
 
+    if getattr(memory, "degraded", False):
+        # The store's own circuit breaker has opened, so `recall` returned an
+        # empty list without raising. Reported on every affected iteration
+        # rather than once, because "the agent ran blind for four iterations"
+        # and "the agent ran blind for one" are different facts. Silent
+        # degradation is the exact failure Milestone 2 shipped and had to fix.
+        reason = getattr(memory, "degraded_reason", "") or "memory is unavailable"
+        return tuple(hits), [f"running without memory: {reason}"]
+
     return tuple(hits), []
 
 

@@ -1,0 +1,60 @@
+# ---------------------------------------------------------------------------
+# docker compose run --rm agent --input samples/weak_essay.txt --provider mock
+# docker compose run --rm agent --input samples/weak_essay.txt          # live
+# docker compose run --rm agent --memory-stats
+# docker compose run --rm preflight
+#
+# Two named volumes, because the two things the container writes have different
+# lifetimes and different reasons to be kept:
+#
+#   agent-data  the memory database. Lessons learned in one run must survive
+#               into the next container, or the cross-session half of Milestone
+#               2 is not actually persistent.
+#   agent-runs  traces. Kept so a failed unattended run can be read afterwards,
+#               which is the entire point of writing them.
+#
+# Swap either for a bind mount (./data:/app/data) to inspect them from the host.
+# ---------------------------------------------------------------------------
+services:
+  agent:
+    build: .
+    image: agentic-rubric-loop:latest
+    env_file:
+      # Optional so a fresh clone can run the offline demo before any key exists.
+      - path: .env
+        required: false
+    environment:
+      # Any config key is overridable here, without touching an image or a file.
+      # AGENTIC_LLM__PRIMARY: ollama
+      # AGENTIC_LOOP__MAX_ITERATIONS: "8"
+      # AGENTIC_GUARDRAILS__TOKEN_BUDGET: "50000"
+      AGENTIC_LOGGING__FORMAT: json
+    volumes:
+      - agent-data:/app/data
+      - agent-runs:/app/runs
+    # The loop is a batch job: it runs, writes, and exits. Restarting it on exit
+    # would silently re-spend the token budget.
+    restart: "no"
+    # A rubric loop is CPU-bound in short bursts (ONNX embedding) and otherwise
+    # waiting on HTTP. These bounds stop a runaway from taking the host with it.
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+
+  # Answers "will this even work here?" without spending a token.
+  preflight:
+    build: .
+    image: agentic-rubric-loop:latest
+    env_file:
+      - path: .env
+        required: false
+    entrypoint: ["python", "scripts/preflight.py"]
+    volumes:
+      - agent-data:/app/data
+    restart: "no"
+
+volumes:
+  agent-data:
+  agent-runs:

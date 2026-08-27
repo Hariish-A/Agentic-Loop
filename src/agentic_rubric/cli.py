@@ -1,9 +1,10 @@
 """Command-line entry point.
 
-Everything the loop needs is assembled here and nowhere else: config is loaded,
-overrides are layered, the rubric is read, a provider is built (with failover
-down the configured chain), and the result is rendered. ``core/`` receives
-finished objects and never reaches back out for any of it.
+Everything the run needs is assembled here and nowhere else: config is loaded,
+overrides are layered, the rubric is read, the provider chain is built, and a
+:class:`~.harness.runner.Runner` wraps the loop in retry, fallbacks, guardrails
+and tracing. ``core/`` receives finished objects and never reaches back out for
+any of it.
 
 Examples::
 
@@ -33,22 +34,33 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from .config import AppConfig, ConfigError, load_config
-from .core.loop import AgenticLoop
 from .core.rubric import Rubric, RubricError
+from .harness.fallbacks import ProviderChain
+from .harness.faults import (
+    FAILURE_KINDS,
+    LLM_KINDS,
+    SIMULATED_TOKEN_BUDGET,
+    FaultyMemory,
+    FaultyRegistry,
+    llm_failure,
+)
+from .harness.runner import Runner
 from .llm.base import LLMProvider
-from .llm.demo_responder import ScriptedAgentResponder, make_failure
+from .llm.demo_responder import ScriptedAgentResponder
 from .llm.factory import available_chain, build_provider
 from .llm.mock import MockProvider
 from .llm.types import LLMError, ProviderUnavailableError
 from .memory.base import MemoryStore
 from .memory.factory import build_memory as build_memory_stack
+from .observability.logger import configure_logging
 from .observability.render import ConsoleRenderer
+from .tools.definitions import build_registry
+from .tools.registry import ToolRegistry
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_CONFIG = PROJECT_ROOT / "config" / "config.yaml"
 DEFAULT_RUBRIC = PROJECT_ROOT / "config" / "rubrics" / "essay_argumentative.yaml"
 
-FAILURE_KINDS = ("rate_limit", "bad_json", "server_error", "provider_down")
 FAILURE_STEPS = ("reason", "judge", "revise", "reflect")
 
 
@@ -102,7 +114,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--fail-step",
         choices=FAILURE_STEPS,
         default="judge",
-        help="which loop step --simulate-failure should hit (default: judge)",
+        help="which loop step an LLM-layer --simulate-failure should hit (default: judge)",
+    )
+    parser.add_argument(
+        "--no-trace", action="store_true", help="do not write runs/<run_id>/"
+    )
+    parser.add_argument(
+        "--trace-dir", help="where run traces are written (default: logging.trace_dir)"
     )
     return parser
 
@@ -148,50 +166,106 @@ def read_input(args: argparse.Namespace) -> str:
     raise ValueError("no input: pass --input FILE, --text STRING, or pipe text on stdin")
 
 
+def build_mock_chain(
+    config: AppConfig, args: argparse.Namespace, rubric: Rubric
+) -> tuple[ProviderChain, list[str]]:
+    """The offline provider, plus a dead link in front of it when asked.
+
+    ``--simulate-failure provider_down`` needs something to fail *over from*, so
+    it prepends a provider that refuses every call. With only one link the demo
+    would prove that an unavailable provider ends the run, which is the opposite
+    of the point.
+    """
+    notes: list[str] = []
+    responder = ScriptedAgentResponder(
+        rubric=rubric,
+        target_score=args.target if args.target is not None else config.loop.target_score,
+    )
+    healthy = MockProvider(responder=responder, name="mock")
+    kind = args.simulate_failure
+
+    if kind == "provider_down":
+        dead = MockProvider(
+            responder=lambda _call: llm_failure("provider_down"), name="mock-primary"
+        )
+        notes.append("primary provider 'mock-primary' will refuse every call")
+        return (
+            ProviderChain(links=[("mock-primary", lambda: dead), ("mock", lambda: healthy)]),
+            notes,
+        )
+
+    if kind in LLM_KINDS:
+        responder.fail_on[args.fail_step] = llm_failure(kind)
+        notes.append(f"injected a {kind} failure into the {args.fail_step} step")
+
+    return ProviderChain.of(healthy), notes
+
+
 def resolve_provider(
     config: AppConfig, args: argparse.Namespace, rubric: Rubric
-) -> tuple[LLMProvider, list[str]]:
-    """Build a provider, walking the failover chain. Returns it plus any notes.
+) -> tuple[LLMProvider, ProviderChain, list[str]]:
+    """Build the provider chain the harness will walk.
 
-    Trying the chain here rather than at the first API call means an unusable
-    provider costs nothing and is reported before the run starts, instead of
-    surfacing three retries deep as a 401.
+    Availability is checked here rather than at the first API call, so an
+    unusable provider costs nothing and is reported before the run starts
+    instead of surfacing three retries deep as a 401. Unlike Milestone 2, the
+    remaining links are *kept*: failover now happens inside the run, so a
+    provider that dies mid-run has somewhere to go.
     """
     notes: list[str] = []
     requested = args.provider or config.llm.primary
 
     if requested == "mock":
-        responder = ScriptedAgentResponder(
-            rubric=rubric,
-            target_score=args.target if args.target is not None else config.loop.target_score,
-        )
-        if args.simulate_failure:
-            responder.fail_on[args.fail_step] = make_failure(args.simulate_failure)
-            notes.append(
-                f"injected a {args.simulate_failure} failure into the {args.fail_step} step"
-            )
-        return MockProvider(responder=responder, name="mock"), notes
+        chain, mock_notes = build_mock_chain(config, args, rubric)
+        return chain.get(0), chain, [*notes, *mock_notes]
 
-    chain = [requested, *[n for n in config.llm.chain if n != requested]]
-    for index, name in enumerate(chain):
+    ordered = [requested, *[n for n in config.llm.chain if n != requested]]
+    links: list[tuple[str, t.Callable[[], LLMProvider]]] = []
+    primary: LLMProvider | None = None
+
+    for name in ordered:
         try:
             provider = build_provider(config, name)
         except (ProviderUnavailableError, ConfigError) as exc:
             notes.append(f"provider {name!r} skipped: {exc}")
             continue
-        if index:
-            notes.append(f"failed over to provider {name!r}")
-        return provider, notes
+        if primary is None:
+            primary = provider
+            links.append((name, lambda p=provider: p))  # type: ignore[misc]
+        else:
+            # Backups stay lazy: a chain that eagerly opened every client would
+            # hold sockets for providers it will most likely never call.
+            provider.close()
+            links.append((name, lambda n=name: build_provider(config, n)))  # type: ignore[misc]
 
-    rows = "\n".join(f"    {n}: {reason}" for n, ok, reason in available_chain(config) if not ok)
-    raise ProviderUnavailableError(
-        "no usable LLM provider. Set a key in .env, or run with --provider mock.\n" + rows
-    )
+    if primary is None:
+        rows = "\n".join(
+            f"    {n}: {reason}" for n, ok, reason in available_chain(config) if not ok
+        )
+        raise ProviderUnavailableError(
+            "no usable LLM provider. Set a key in .env, or run with --provider mock.\n" + rows
+        )
+
+    if len(links) > 1:
+        notes.append("failover chain: " + " -> ".join(name for name, _ in links))
+    return primary, ProviderChain(links=links), notes
 
 
 def build_memory(config: AppConfig, args: argparse.Namespace) -> tuple[MemoryStore, list[str]]:
     """Assemble the memory stack. ``--no-memory`` is the A/B baseline."""
     return build_memory_stack(config, enabled=not args.no_memory)
+
+
+def wrap_faulty_memory(config: AppConfig, store: MemoryStore) -> MemoryStore:
+    """Re-wrap the memory stack around a store whose reads always fail.
+
+    The fault goes *under* the MemoryManager, not in place of it, so the run
+    exercises the real circuit breaker rather than a stand-in for it.
+    """
+    from .memory.manager import MemoryManager
+
+    inner = getattr(store, "store", store)
+    return MemoryManager(FaultyMemory(inner), config.memory)
 
 
 def run_memory_command(config: AppConfig, args: argparse.Namespace) -> int:
@@ -215,6 +289,47 @@ def run_memory_command(config: AppConfig, args: argparse.Namespace) -> int:
         store.close()
 
 
+def apply_simulation(
+    args: argparse.Namespace, overrides: dict[str, t.Any]
+) -> list[str]:
+    """Fold a ``--simulate-failure`` choice into the config overrides.
+
+    Two of the seven kinds are configuration, not code: ``budget`` is a tiny
+    token budget, and both are applied here so the guardrail under test is the
+    real one reading its real knob, not a special path that only exists in demo
+    mode.
+    """
+    notes: list[str] = []
+    if args.simulate_failure == "budget":
+        overrides["guardrails.token_budget"] = SIMULATED_TOKEN_BUDGET
+        notes.append(
+            f"token budget forced down to {SIMULATED_TOKEN_BUDGET} tokens for this run"
+        )
+    return notes
+
+
+def build_run_registry(args: argparse.Namespace, rubric: Rubric) -> ToolRegistry:
+    """The tool set, rigged to fail once when the demo asks for it."""
+    registry = build_registry(rubric)
+    if args.simulate_failure == "tool_error":
+        return FaultyRegistry(registry)
+    return registry
+
+
+def render_result(result: t.Any, args: argparse.Namespace) -> None:
+    """Optional outputs: file, JSON, and the text itself."""
+    if args.out:
+        Path(args.out).write_text(result.best_draft, encoding="utf-8")
+        best = f"{result.best_score:.1f}%" if result.best_score is not None else "unscored"
+        print(f"wrote best draft ({best}) to {args.out}", file=sys.stderr)
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    if args.show_draft:
+        print("\n----- BEST DRAFT -----")
+        print(result.best_draft)
+        print("----- END -----")
+
+
 def main(argv: t.Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     load_dotenv(PROJECT_ROOT / ".env")
@@ -228,6 +343,11 @@ def main(argv: t.Sequence[str] | None = None) -> int:
         overrides["loop.target_score"] = args.target
     if args.no_memory:
         overrides["memory.enabled"] = False
+    if args.no_trace:
+        overrides["logging.trace_enabled"] = False
+    if args.trace_dir:
+        overrides["logging.trace_dir"] = args.trace_dir
+    simulation_notes = apply_simulation(args, overrides)
 
     try:
         config = load_config(args.config, overrides=overrides, project_root=PROJECT_ROOT)
@@ -235,7 +355,7 @@ def main(argv: t.Sequence[str] | None = None) -> int:
             return run_memory_command(config, args)
         rubric = Rubric.from_yaml(args.rubric)
         draft = read_input(args)
-        provider, notes = resolve_provider(config, args, rubric)
+        provider, chain, notes = resolve_provider(config, args, rubric)
     except (ConfigError, RubricError, FileNotFoundError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -243,49 +363,50 @@ def main(argv: t.Sequence[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 3
 
+    configure_logging(config.logging)
+    notes.extend(simulation_notes)
+
     memory, memory_notes = build_memory(config, args)
     notes.extend(memory_notes)
+    if args.simulate_failure == "memory_down":
+        memory = wrap_faulty_memory(config, memory)
+        notes.append("memory reads will fail; the circuit breaker should open")
 
-    renderer = None if args.quiet else ConsoleRenderer(verbose=args.verbose)
     for note in notes:
         print(f"note: {note}", file=sys.stderr)
 
-    loop = AgenticLoop(
+    runner = Runner(
         config=config,
-        provider=provider,
         rubric=rubric,
+        provider=provider,
+        chain=chain,
         memory=memory,
-        on_event=renderer,
+        registry=build_run_registry(args, rubric),
+        console=None if args.quiet else ConsoleRenderer(verbose=args.verbose),
     )
 
     try:
-        result = loop.run(
+        report = runner.run(
             draft,
             session_id=args.session,
             target_score=args.target,
             max_iterations=args.max_iters,
         )
     except LLMError as exc:
+        # Only reached when every rung of every ladder was spent -- the whole
+        # provider chain is gone, or the request itself is malformed.
         print(f"error: the run could not complete: {exc}", file=sys.stderr)
         return 4
     finally:
-        provider.close()
-        memory.close()
+        runner.close()
 
-    if args.out:
-        Path(args.out).write_text(result.best_draft, encoding="utf-8")
-        print(f"wrote best draft ({result.best_score:.1f}%) to {args.out}", file=sys.stderr)
-
-    if args.json:
-        print(json.dumps(result.to_dict(), indent=2))
-    if args.show_draft:
-        print("\n----- BEST DRAFT -----")
-        print(result.best_draft)
-        print("----- END -----")
+    render_result(report.result, args)
+    if report.trace_path and not args.quiet:
+        print(f"trace: {report.trace_path}", file=sys.stderr)
 
     # Exit non-zero when the agent stopped without reaching the target, so the
     # command is usable in a script or a CI gate.
-    return 0 if result.status.is_success else 1
+    return 0 if report.result.status.is_success else 1
 
 
 if __name__ == "__main__":

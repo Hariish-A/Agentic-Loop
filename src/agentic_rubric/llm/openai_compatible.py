@@ -178,6 +178,22 @@ class OpenAICompatibleProvider(LLMProvider):
             )
         message = choices[0].get("message") or {}
         text = message.get("content") or ""
+        finish_reason = choices[0].get("finish_reason") or ""
+
+        if not text and not message.get("tool_calls") and finish_reason == "length":
+            # Reasoning models (Groq's gpt-oss family among them) spend the
+            # output budget on a `reasoning` field *before* emitting content, so
+            # a max_tokens that looks generous can return a 200 OK with nothing
+            # in it. Found by running preflight --ping with max_tokens=16.
+            # Raised rather than returned, so the repair ladder sees a stated
+            # problem instead of the loop quietly revising a draft to "".
+            raise LLMParseError(
+                f"{self.name}: the completion was truncated before any content was "
+                f"emitted (finish_reason=length). Raise llm.max_tokens -- this model "
+                f"spends output tokens on reasoning first.",
+                raw=str(message.get("reasoning") or "")[:500],
+                provider=self.name,
+            )
 
         calls: list[ToolCall] = []
         for index, raw_call in enumerate(message.get("tool_calls") or []):
@@ -208,7 +224,7 @@ class OpenAICompatibleProvider(LLMProvider):
             usage=_usage(data, request_body, text),
             model=data.get("model") or self.model,
             provider=self.name,
-            finish_reason=choices[0].get("finish_reason") or "",
+            finish_reason=finish_reason,
             latency_ms=latency_ms,
             raw=data,
         )

@@ -1,0 +1,86 @@
+note: injected a rate_limit failure into the judge step
+note: semantic recall via fastembed (384d)
+{"ts": "2026-08-27T06:50:52.502+00:00", "level": "WARNING", "logger": "agentic_rubric.runner", "message": "retry", "provider": "mock", "attempt": 1, "delay_s": 0.05, "error": "429 Too Many Requests (injected)", "error_type": "RateLimitError", "honoured_retry_after": true}
+{"ts": "2026-08-27T06:50:53.875+00:00", "level": "INFO", "logger": "agentic_rubric.runner", "message": "run_summary", "run_id": "run_ed3ed262abbd", "session_id": "sim-rate_limit", "status": "target_reached", "harness": {"provider": "mock:mock-1", "retries": 1, "failovers": 0, "repairs": 0, "tool_recoveries": 0, "degraded_memory": false, "cost_est_usd": 0.0, "trace": "D:\\Official\\Projects\\Agentic Loop\\runs\\sim\\run_ed3ed262abbd\\trace.jsonl"}}
+trace: D:\Official\Projects\Agentic Loop\runs\sim\run_ed3ed262abbd\trace.jsonl
+==== RUN START =========================================================================
+  run       : run_ed3ed262abbd
+  session   : sim-rate_limit
+  rubric    : essay_argumentative
+  provider  : mock:mock-1
+  memory    : SQLiteMemory[vector+keyword (fastembed (384d))] memory.db
+  target    : 85%   max iterations: 6
+
+==== ITERATION 1 =======================================================================
+  PERCEIVE  [??????????????????????????????????]  unscored
+  REASON    -> score_against_rubric
+            "The draft is unscored, so I cannot tell where the points are. Measure
+            first."
+  HARNESS   ! retry 1 on mock after 0.05s (Retry-After): RateLimitError
+  ACT       score_against_rubric [ok] (51 ms)
+            Scored 28.7%. Biggest opportunities: thesis 2/5 (18.8pts available),
+            evidence 2/5 (18.8pts available).
+  REFLECT   complete=False
+            next focus: thesis
+
+==== ITERATION 2 =======================================================================
+  PERCEIVE  [##########-------------------|----]  28.7%
+  REASON    -> revise_text
+            "Memory says: Score the essay after each revision to verify actual rubric
+            impact before planni... Applying that directly to Thesis and Position,
+            Evidence and Support rather than rediscovering it."
+  ACT       revise_text [ok] (3 ms)
+            Revised for thesis, evidence: 202 -> 243 words (+41), similarity 0.95. The
+            draft is now unscored - score it to see the effect.
+  REFLECT   complete=False
+            LESSON: On this rubric, targeting the two highest-weighted criteria first
+            moves the total faster than fixing the lowest raw score.
+            next focus: reasoning
+
+==== ITERATION 3 =======================================================================
+  PERCEIVE  [??????????????????????????????????]  unscored
+  REASON    -> score_against_rubric
+            "The draft is unscored, so I cannot tell where the points are. Measure
+            first."
+  ACT       score_against_rubric [ok] (1 ms)
+            Scored 66.2%. Biggest opportunities: reasoning 3/5 (10.0pts available),
+            style_clarity 3/5 (7.5pts available).
+  REFLECT   complete=False  delta=+37.5pts
+            next focus: reasoning
+
+==== ITERATION 4 =======================================================================
+  PERCEIVE  [#######################------|----]  66.2%
+  REASON    -> revise_text
+            "Memory says: Score the essay after each revision to verify actual rubric
+            impact before planni... Applying that directly to Reasoning and
+            Counterargument, Style and Clarity rather than rediscovering it."
+  ACT       revise_text [ok] (1 ms)
+            Revised for reasoning, style_clarity: 243 -> 284 words (+41), similarity
+            0.95. The draft is now unscored - score it to see the effect.
+  REFLECT   complete=False
+            LESSON: Unattributed figures score no better than no figures; naming the
+            source is what lifts the evidence criterion.
+            next focus: organization
+
+==== ITERATION 5 =======================================================================
+  PERCEIVE  [??????????????????????????????????]  unscored
+  REASON    -> score_against_rubric
+            "The draft is unscored, so I cannot tell where the points are. Measure
+            first."
+  ACT       score_against_rubric [ok] (1 ms)
+            Scored 96.2%. Biggest opportunities: organization 4/5 (3.8pts available),
+            thesis 5/5 (0.0pts available).
+  REFLECT   complete=True  delta=+30.0pts
+
+==== RUN COMPLETE ======================================================================
+  status      : target_reached
+  iterations  : 5
+  trajectory  : 28.7% -> 66.2% -> 96.2%
+  score       : 28.7% -> 96.2%  (+67.5 points)
+  best        : [#############################|###-]  target 85%
+  tokens      : 1,800 in / 900 out
+  elapsed     : 1.52s
+  harness     : provider=mock:mock-1 retries=1 repairs=0 failovers=0 tool_recoveries=0
+  budget      : 2,700 / 200,000 tokens (1%)
+  trace       : D:\Official\Projects\Agentic Loop\runs\sim\run_ed3ed262abbd\trace.jsonl
+

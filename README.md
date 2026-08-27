@@ -7,7 +7,7 @@ The agent scores a draft against a weighted rubric, decides which criterion is t
 lever, revises the text targeting that criterion, re-scores, and repeats until it hits the target
 score, plateaus, or trips a guardrail.
 
-> **Status:** Milestones 1 and 2 complete. See [Plan.md](Plan.md) for the task list and
+> **Status:** Milestones 1, 2 and 3 complete. See [Plan.md](Plan.md) for the task list and
 > [progress.md](progress.md) for what is done and what is next.
 
 ---
@@ -85,7 +85,7 @@ python -m agentic_rubric.cli --input samples/weak_essay.txt --provider mock
 Run the tests — no API key or network required:
 
 ```bash
-python -m pytest -q
+python -m pytest -q                        # 242 passed, in seconds
 python -m ruff check src tests scripts
 ```
 
@@ -168,6 +168,110 @@ meaningful. Full write-up in [docs/02_memory_design.md](docs/02_memory_design.md
 
 ---
 
+## Browser demo
+
+A single command, no install step, no web framework, no API key:
+
+```bash
+python demo.py            # opens http://127.0.0.1:8000
+```
+
+Built on `http.server` from the standard library. A demo whose first step is
+"pip install a web framework" is a demo that fails on the reviewer's machine.
+
+The page drives the real loop and streams every step as it happens:
+
+| Panel | Shows |
+|---|---|
+| **Rubric** | Criteria, weights and probe counts, loaded from YAML — swap rubrics from the dropdown |
+| **Live transcript** | One card per iteration with all four steps: PERCEIVE (score bar, metrics, failing probes, **recalled memory**), REASON (chosen tool + thought + arguments), ACT (result or typed error), REFLECT (delta, plateau, **lesson stored**) |
+| **Summary** | Status, trajectory, action sequence, tokens, elapsed |
+| **Scorecards** | Per-criterion score, weight, headroom, and the judge's quoted evidence |
+| **Before / after** | Input vs the best-scoring draft ever seen |
+| **Memory** | Store stats, what this run wrote, and every stored lesson |
+
+### Reproducing each concept from the demo
+
+| Concept | How to see it |
+|---|---|
+| The loop iterates | Run any sample — the trajectory climbs across three scorings |
+| Rubrics are data | Switch to **Engineering Bug Report**; the tool schemas change with it |
+| Headroom, not raw score | Scorecards tab — the agent targets weight × remaining points |
+| Two LLM-free tools | Watch `analyze_text` and `diff_drafts` in the transcript |
+| Shallow Tree of Thoughts | Set **Revision candidates** to 3; ACT reports "chose the best of 3 candidates" |
+| Failure recovery | Inject `rate_limit` into `judge` — the tool fails, the agent re-scores next turn |
+| Degraded reasoning fallback | Inject `bad_json` into `reason` — REASON shows a **degraded fallback** badge |
+| **Cross-session memory** | Run with session `demo-a`, then change the session id to `demo-b` and run again |
+| Memory control | Untick **Memory enabled** — the run reverts to the cold behaviour |
+| The three memory ops | **Clear session** / **Wipe memory** buttons, plus the Memory tab's stats |
+
+The memory demonstration in one sequence:
+
+1. Press **Wipe memory**, then run with session `demo-a` → **6 iterations**, and
+   iteration 2 spends a turn on `analyze_text` because nothing was recalled.
+2. Change the session id to `demo-b` and run the same text again → **5 iterations**.
+   Iteration 2 now recalls a lesson written by `demo-a` (highlighted in purple) and
+   goes straight to `revise_text`, passing the lesson through as `apply_lessons`.
+3. Untick **Memory enabled** and run again → back to **6 iterations**, which is the
+   control proving the difference came from memory and not from run order.
+
+## Harness
+
+Retry, fallbacks, guardrails and observability wrap the loop **without touching it**. `core/`
+contains no `try`/`except` at all: the harness substitutes decorated versions of the loop's own
+collaborators before it starts.
+
+| Area | Defence |
+|---|---|
+| **Retry** | Exponential backoff, full/equal jitter, `Retry-After` honoured (and capped); separate, tighter policy for tool calls |
+| **Fallbacks** | One ladder per failure mode: forced schema → local JSON salvage → one repair call → safe default; sticky provider failover; typed tool recovery |
+| **Guardrails** | Hard iteration cap in Python, token budget with an 80% warning, wall-clock deadline, ingestion cap |
+| **Stuck detection** | Repeated `(action, args)`, draft A→B→A cycle, frozen score → `status=stuck` |
+| **Observability** | `runs/<run_id>/trace.jsonl` + `summary.json`, one envelope per event; structured JSON logs with key- *and* pattern-based redaction |
+
+Every stop is graceful: the run returns the **best draft seen**, a status, a reason and a complete
+trace — never an exception.
+
+### Proving it, on demand
+
+```bash
+python -m agentic_rubric.cli --input samples/weak_essay.txt --provider mock \
+    --simulate-failure rate_limit      # or server_error bad_json provider_down
+                                       #    tool_error memory_down budget
+```
+
+Each kind is injected at the layer where the real thing occurs — a 429 inside the provider, a fault
+inside a real tool handler, an outage inside the memory store — not by short-circuiting the harness
+into pretending. Transcripts for all seven are in [docs/demos/](docs/demos/).
+
+### And it was proved without simulation
+
+A live run against Groq's free tier hit **fifteen genuine rate limits** and completed anyway:
+
+```
+status  : target_reached      trajectory : 15.0% -> 32.5% -> 87.5%
+harness : retries=15 repairs=0 failovers=0 tool_recoveries=0
+budget  : 30,092 / 200,000 tokens (15%)
+```
+
+Full write-up in [docs/03_harness_design.md](docs/03_harness_design.md).
+
+---
+
+## Docker
+
+```bash
+docker compose run --rm preflight                                        # will it work here?
+docker compose run --rm agent --input samples/weak_essay.txt --provider mock
+docker compose run --rm agent --input samples/weak_essay.txt             # live
+```
+
+`python:3.12-slim` (not alpine — `onnxruntime` has no musl wheel), non-root, dependency layer cached
+ahead of the source, and the embedding model **baked in at build time** so the first run needs no
+network. Two named volumes: `agent-data` for the memory database, `agent-runs` for traces.
+
+---
+
 ## Repository layout
 
 ```
@@ -175,15 +279,21 @@ config/          config.yaml + rubrics/*.yaml
 docs/            patterns research, memory design, harness design, solution write-up
 samples/         deliberately weak inputs
 scripts/         preflight and demo helpers
+demo.py          one-command launcher for the browser demo
 src/agentic_rubric/
   config.py      typed layered configuration
   llm/           provider ABC, httpx client, mock provider, JSON salvage
   core/          perceive / reason / act / reflect / loop   (Milestone 1)
   tools/         schemas, registry, handlers                (Milestone 1)
   memory/        episodic + lesson + profile stores         (Milestone 2)
-  harness/       retry, fallbacks, guardrails, runner       (Milestone 3)
-  observability/ structured logging and run traces          (Milestone 3)
+  web/           stdlib demo server + single-page UI
+  harness/       retry, fallbacks, guardrails, faults,
+                 loop detection, runner                     (Milestone 3)
+  observability/ structured logging, JSONL traces, console  (Milestone 3)
 tests/           mock-driven, no key or network required
+runs/            per-run traces and summaries (gitignored)
+Dockerfile       python:3.12-slim, non-root, model baked in
+docker-compose.yml
 ```
 
 ---
@@ -196,7 +306,7 @@ tests/           mock-driven, no key or network required
 | [progress.md](progress.md) | Live status, decisions with rationale, resume pointer |
 | [docs/01_patterns_research.md](docs/01_patterns_research.md) | ReAct, Reflexion, CoT, Tree of Thoughts, LATS — mechanisms, costs, and which are applied here |
 | [docs/02_memory_design.md](docs/02_memory_design.md) | Backend choice, schema, scope policy, and the A/B transcript |
-| `docs/03_harness_design.md` | Each engineering decision paired with the failure mode it defends *(Milestone 3)* |
+| [docs/03_harness_design.md](docs/03_harness_design.md) | Each engineering decision paired with the failure mode it defends against |
 | [docs/demos/](docs/demos/) | Captured run transcripts, including injected failures |
 
 ---

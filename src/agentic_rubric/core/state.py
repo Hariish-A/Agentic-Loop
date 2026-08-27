@@ -17,6 +17,7 @@ explicit about it rather than pretending otherwise.
 
 from __future__ import annotations
 
+import time
 import typing as t
 import uuid
 from dataclasses import dataclass, field
@@ -43,9 +44,20 @@ class RunStatus(str, Enum):
     PLATEAU = "plateau"
     AGENT_FINALIZED = "agent_finalized"
     MAX_ITERATIONS_REACHED = "max_iterations_reached"
-    STUCK = "stuck"  # set by the Milestone 3 loop detector
-    BUDGET_EXHAUSTED = "budget_exhausted"  # Milestone 3
+    STUCK = "stuck"  # the harness loop detector saw a repeated cycle
+    BUDGET_EXHAUSTED = "budget_exhausted"  # the token budget guardrail tripped
+    TIMEOUT = "timeout"  # the wall-clock guardrail tripped
     ERROR = "error"
+
+    @property
+    def is_guardrail_stop(self) -> bool:
+        """Stopped by the harness rather than by the agent's own judgement."""
+        return self in {
+            RunStatus.MAX_ITERATIONS_REACHED,
+            RunStatus.STUCK,
+            RunStatus.BUDGET_EXHAUSTED,
+            RunStatus.TIMEOUT,
+        }
 
     @property
     def is_success(self) -> bool:
@@ -208,6 +220,29 @@ class Decision:
 # ---------------------------------------------------------------------------
 
 
+class ErrorKind(str, Enum):
+    """Why a tool failed, expressed as *what the harness should do about it*.
+
+    The registry contains every exception, which means the exception type is
+    lost by the time the result reaches the harness. Classifying at the point of
+    containment keeps the recovery decision type-driven instead of leaving the
+    harness to pattern-match on error strings.
+    """
+
+    NONE = ""
+    #: Arguments did not satisfy the schema. Retrying verbatim cannot help;
+    #: sanitising the arguments can.
+    VALIDATION = "validation"
+    #: The tool does not exist. Route to an alternative.
+    UNKNOWN_TOOL = "unknown_tool"
+    #: Transient: a rate limit or 5xx from an LLM-backed tool. Back off, retry.
+    TRANSIENT = "transient"
+    #: The handler declined for a reason the agent should read and react to.
+    RECOVERABLE = "recoverable"
+    #: A bug or a permanent refusal. Report it and move on.
+    TERMINAL = "terminal"
+
+
 @dataclass(frozen=True)
 class ActionResult:
     """What a tool actually did.
@@ -224,15 +259,29 @@ class ActionResult:
     summary: str = ""
     error: str | None = None
     duration_ms: float = 0.0
+    #: Set by the registry when it contains an exception; read by the harness.
+    error_kind: ErrorKind = ErrorKind.NONE
+    #: How many extra attempts the harness spent before this result stuck.
+    retry_count: int = 0
+    #: True when the harness turned a failure into this success.
+    recovered: bool = False
 
     @classmethod
-    def failure(cls, action: str, arguments: dict[str, t.Any], error: str) -> ActionResult:
+    def failure(
+        cls,
+        action: str,
+        arguments: dict[str, t.Any],
+        error: str,
+        *,
+        kind: ErrorKind = ErrorKind.TERMINAL,
+    ) -> ActionResult:
         return cls(
             action=action,
             arguments=arguments,
             ok=False,
             error=error,
             summary=f"TOOL FAILED: {error}",
+            error_kind=kind,
         )
 
 
@@ -331,6 +380,9 @@ class IterationRecord:
             "ok": self.result.ok,
             "result": self.result.summary,
             "error": self.result.error,
+            "error_kind": self.result.error_kind.value,
+            "retry_count": self.result.retry_count,
+            "recovered": self.result.recovered,
             "reflection": {
                 "task_complete": self.reflection.task_complete,
                 "reason": self.reflection.reason,
@@ -367,12 +419,27 @@ class LoopState:
     best_draft: str = ""
     best_score: float | None = None
     notes: list[str] = field(default_factory=list)
+    #: Running token total across every LLM call this run has made, from any
+    #: step or tool. The token-budget guardrail reads this, so it has to be
+    #: updated as the run proceeds rather than summed at the end.
+    usage: Usage = field(default_factory=Usage)
+    started_monotonic: float = field(default_factory=time.monotonic)
 
     def __post_init__(self) -> None:
         if not self.initial_draft:
             self.initial_draft = self.workspace.draft
         if not self.best_draft:
             self.best_draft = self.workspace.draft
+
+    # -- accounting ---------------------------------------------------------
+
+    def record_usage(self, usage: Usage) -> None:
+        """Fold one call's tokens into the running total the guardrail watches."""
+        self.usage = self.usage + usage
+
+    @property
+    def elapsed_s(self) -> float:
+        return time.monotonic() - self.started_monotonic
 
     # -- the feedback edge --------------------------------------------------
 
@@ -444,6 +511,20 @@ class RunResult:
     elapsed_s: float = 0.0
     total_input_tokens: int = 0
     total_output_tokens: int = 0
+    #: Harness telemetry, filled in by the runner after the loop returns. The
+    #: loop cannot know these -- it never sees a retry, by design.
+    provider: str = ""
+    retry_count: int = 0
+    failover_count: int = 0
+    repair_count: int = 0
+    tool_recovery_count: int = 0
+    degraded_memory: bool = False
+    cost_est_usd: float = 0.0
+    trace_path: str = ""
+
+    @property
+    def total_tokens(self) -> int:
+        return self.total_input_tokens + self.total_output_tokens
 
     @property
     def improvement(self) -> float | None:
@@ -470,6 +551,16 @@ class RunResult:
                 "total": self.total_input_tokens + self.total_output_tokens,
             },
             "score_trajectory": [round(c.weighted_percent(), 1) for c in self.scorecards],
+            "harness": {
+                "provider": self.provider,
+                "retries": self.retry_count,
+                "failovers": self.failover_count,
+                "repairs": self.repair_count,
+                "tool_recoveries": self.tool_recovery_count,
+                "degraded_memory": self.degraded_memory,
+                "cost_est_usd": round(self.cost_est_usd, 6),
+                "trace": self.trace_path,
+            },
             "iterations_detail": [r.to_dict() for r in self.records],
             "notes": self.notes,
         }
@@ -478,6 +569,7 @@ class RunResult:
 __all__ = [
     "ActionResult",
     "Decision",
+    "ErrorKind",
     "IterationRecord",
     "LoopState",
     "MemoryHit",

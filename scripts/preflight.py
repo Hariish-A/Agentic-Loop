@@ -94,7 +94,10 @@ def main() -> int:
                 user("Reply with the single word: ready"),
             ],
             temperature=0.0,
-            max_tokens=16,
+            # Not 16: reasoning models spend the output budget on an internal
+            # reasoning field before any content, so a tight cap makes a
+            # perfectly healthy provider look like it replied with nothing.
+            max_tokens=128,
         )
     except LLMError as exc:
         print(f"{BAD} {type(exc).__name__}: {exc}")

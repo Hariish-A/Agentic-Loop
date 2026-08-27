@@ -331,3 +331,41 @@ def test_factory_accepts_an_injected_mock() -> None:
     config = load_config(CONFIG)
     mock = MockProvider([MockTurn(text="hi")])
     assert build_provider(config, "mock", mock_provider=mock) is mock
+
+def test_an_empty_truncated_completion_is_a_parse_error() -> None:
+    """A reasoning model can return 200 OK with nothing in it.
+
+    Groq's gpt-oss spends the output budget on an internal `reasoning` field
+    before emitting content, so a tight max_tokens yields an empty `content`
+    and finish_reason=length. Returning that as a valid response would let the
+    reviser replace the user's draft with an empty string.
+    """
+    body = _ok_body(
+        choices=[
+            {
+                "message": {"role": "assistant", "content": "", "reasoning": "hmm"},
+                "finish_reason": "length",
+            }
+        ]
+    )
+    provider = _provider(lambda request: httpx.Response(200, json=body))
+    with pytest.raises(LLMParseError) as caught:
+        provider.complete([user("hi")])
+    assert "truncated" in str(caught.value)
+    assert "max_tokens" in str(caught.value)
+
+
+def test_a_truncated_completion_with_content_is_still_returned() -> None:
+    """Partial text is the caller's problem to judge, not the client's."""
+    body = _ok_body(
+        choices=[
+            {
+                "message": {"role": "assistant", "content": "half an ans"},
+                "finish_reason": "length",
+            }
+        ]
+    )
+    provider = _provider(lambda request: httpx.Response(200, json=body))
+    response = provider.complete([user("hi")])
+    assert response.text == "half an ans"
+    assert response.finish_reason == "length"

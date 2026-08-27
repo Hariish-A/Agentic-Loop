@@ -22,13 +22,13 @@ from __future__ import annotations
 
 import time
 import typing as t
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from ..config import AppConfig
 from ..core.rubric import Rubric
-from ..core.state import ActionResult, Decision, Workspace
+from ..core.state import ActionResult, Decision, ErrorKind, Workspace
 from ..llm.base import LLMProvider
-from ..llm.types import ToolSpec, Usage
+from ..llm.types import LLMParseError, RetryableLLMError, ToolSpec, Usage
 
 #: Every tool schema carries this. See :class:`~..core.state.Decision`.
 THOUGHT_FIELD = "thought"
@@ -161,6 +161,29 @@ def validate_arguments(
 
 
 # ---------------------------------------------------------------------------
+# Error classification
+# ---------------------------------------------------------------------------
+
+
+def classify_exception(exc: BaseException) -> ErrorKind:
+    """Decide what the harness may do about an exception a handler raised.
+
+    Two of the five tools call an LLM, so a rate limit inside a handler is a
+    *tool* failure that a retry would fix. The registry contains the exception
+    to keep the loop alive, and containment destroys the type -- so the verdict
+    is taken here, while the exception object is still in hand.
+    """
+    if isinstance(exc, RetryableLLMError):
+        return ErrorKind.TRANSIENT
+    if isinstance(exc, LLMParseError):
+        # The model produced something unusable; a fresh sample often differs.
+        return ErrorKind.TRANSIENT
+    if isinstance(exc, (KeyError, TypeError, AttributeError)):
+        return ErrorKind.TERMINAL  # a bug in the handler, not bad luck
+    return ErrorKind.TERMINAL
+
+
+# ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 
@@ -251,6 +274,7 @@ class ToolRegistry:
                 decision.action,
                 decision.arguments,
                 f"unknown tool {decision.action!r}; available tools are {self.names}",
+                kind=ErrorKind.UNKNOWN_TOOL,
             )
 
         # `thought` is captured on the Decision; handlers never see it.
@@ -262,17 +286,24 @@ class ToolRegistry:
                 decision.action,
                 arguments,
                 "invalid arguments: " + "; ".join(errors),
+                kind=ErrorKind.VALIDATION,
             )
 
         try:
             output = entry.handler(arguments, ctx)
         except ToolError as exc:
-            result = ActionResult.failure(decision.action, arguments, str(exc))
+            result = ActionResult.failure(
+                decision.action,
+                arguments,
+                str(exc),
+                kind=ErrorKind.RECOVERABLE if exc.recoverable else ErrorKind.TERMINAL,
+            )
         except Exception as exc:  # noqa: BLE001 - a tool bug must not kill the run
             result = ActionResult.failure(
                 decision.action,
                 arguments,
                 f"{type(exc).__name__}: {exc}",
+                kind=classify_exception(exc),
             )
         else:
             result = ActionResult(
@@ -284,15 +315,7 @@ class ToolRegistry:
             )
 
         duration_ms = (time.perf_counter() - started) * 1000.0
-        return ActionResult(
-            action=result.action,
-            arguments=result.arguments,
-            ok=result.ok,
-            output=result.output,
-            summary=result.summary,
-            error=result.error,
-            duration_ms=duration_ms,
-        )
+        return replace(result, duration_ms=duration_ms)
 
 
 def build_spec(
@@ -319,6 +342,7 @@ def build_spec(
 
 __all__ = [
     "THOUGHT_FIELD",
+    "classify_exception",
     "Handler",
     "RegisteredTool",
     "ToolContext",

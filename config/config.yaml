@@ -58,7 +58,10 @@ llm:
   # Note: Groq converts temperature 0 to 1e-8, so the judge is near
   # deterministic there rather than exactly deterministic.
   temperature: 0.3
-  max_tokens: 2048
+  # 4096, not 2048: openai/gpt-oss-120b is a reasoning model and spends output
+  # tokens on an internal reasoning field before it emits any content. A cap
+  # that looks generous for a 300-word rewrite can return an empty completion.
+  max_tokens: 4096
 
 loop:
   max_iterations: 6          # hard cap, enforced by the harness not the model
@@ -88,22 +91,33 @@ memory:
   vector_weight: 0.7         # blend when both vector and keyword channels hit
 
 retry:
+  # Transport policy, applied by harness/retry.py around every provider call.
   max_attempts: 4
   base_delay_s: 1.0
   max_delay_s: 30.0
   jitter: full               # full | equal | none
   retry_on_status: [408, 409, 425, 429, 500, 502, 503, 504]
+  max_retry_after_s: 60.0    # a longer Retry-After fails over instead of waiting
+  # Tool policy. Deliberately tighter: a failing tool is usually deterministic,
+  # and two of the five tools spend tokens on every attempt.
+  tool_max_attempts: 2
+  tool_base_delay_s: 0.25
+  repair_attempts: 1         # repair round trips per unparseable response
 
 guardrails:
   token_budget: 200000       # per run, across every LLM call
-  token_warn_ratio: 0.8
+  token_warn_ratio: 0.8      # note + event at 80% of the budget
   wall_clock_timeout_s: 600
-  max_input_chars: 20000
-  repeat_action_threshold: 3 # identical (action,args) N times => stuck
+  max_input_chars: 20000     # prompt view of the draft (applied in Perceive)
+  max_document_chars: 200000 # hard ingestion cap, applied before the run
+  repeat_action_threshold: 3 # identical (action,args) N times in a row => stuck
   stuck_score_epsilon: 0.5
+  stuck_score_window: 3      # scorecards inspected by the plateau signal
 
 logging:
   level: INFO
   format: json               # json | console
-  trace_dir: runs
+  trace_dir: runs            # runs/<run_id>/trace.jsonl + summary.json
+  trace_enabled: true
+  trace_max_field_chars: 2000
   redact_keys: [api_key, authorization]

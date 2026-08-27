@@ -20,7 +20,13 @@ Termination has three sources, in priority order:
 1. **Reflect** decides the work is done (target met, credible finalize, plateau).
 2. **The loop** enforces ``max_iterations``. The cap is applied here, in Python,
    never delegated to the model.
-3. Milestone 3 adds budget and stuck detection through the same seam.
+3. A :class:`LoopController` -- the harness's guardrails and stuck detector --
+   may stop the run at either iteration boundary.
+
+The harness attaches through exactly two seams, ``controller`` and ``act_fn``,
+and both default to "no harness". That is why there is no ``try/except`` here:
+retry, repair, failover and budget enforcement live in :mod:`..harness`, and the
+loop stays readable as the four steps it is meant to demonstrate.
 
 Whatever the reason, the run returns the **best-scoring draft ever seen**, not
 the last one produced. A revision can make things worse, and an improvement
@@ -44,6 +50,8 @@ from .reason import reason
 from .reflect import reflect
 from .rubric import Rubric
 from .state import (
+    ActionResult,
+    Decision,
     IterationRecord,
     LoopState,
     Observation,
@@ -53,9 +61,37 @@ from .state import (
     new_id,
 )
 
-#: Callback signature for observability. Milestone 3 attaches the JSONL tracer
-#: here; Milestone 1 uses it for the console renderer.
+#: Callback signature for observability. The JSONL tracer and the console
+#: renderer both attach here, so what is watched and what is recorded cannot
+#: drift apart.
 EventHook = t.Callable[[str, dict[str, t.Any]], None]
+
+#: The Act seam. Defaults to :func:`~.act.act`; the harness substitutes a
+#: version that retries transient tool failures and sanitises bad arguments.
+ActFn = t.Callable[[Decision, ToolRegistry, ToolContext], "tuple[ActionResult, Usage]"]
+
+
+class StopSignal(t.NamedTuple):
+    """A controller's instruction to end the run, with the status to report."""
+
+    status: RunStatus
+    reason: str
+
+
+class LoopController(t.Protocol):
+    """The guardrail seam. Consulted at both iteration boundaries.
+
+    Deliberately narrow: a controller may stop the run and may annotate it, and
+    can do nothing else. It cannot choose actions, edit the draft or change a
+    score -- so no amount of harness code can quietly become a fifth cognitive
+    step.
+    """
+
+    def before_iteration(self, state: LoopState) -> StopSignal | None:
+        """Called before Perceive. Return a signal to stop instead."""
+
+    def after_iteration(self, state: LoopState, record: IterationRecord) -> StopSignal | None:
+        """Called after the Reflection has been folded in."""
 
 
 class AgenticLoop:
@@ -70,6 +106,8 @@ class AgenticLoop:
         registry: ToolRegistry | None = None,
         memory: MemoryStore | None = None,
         on_event: EventHook | None = None,
+        controller: LoopController | None = None,
+        act_fn: ActFn = act,
     ) -> None:
         self.config = config
         self.provider = provider
@@ -78,6 +116,8 @@ class AgenticLoop:
         self.registry = registry or build_registry(rubric)
         self.memory = memory or NullMemory()
         self._on_event = on_event
+        self._controller = controller
+        self._act = act_fn
 
     # -- events -------------------------------------------------------------
 
@@ -134,6 +174,28 @@ class AgenticLoop:
         except Exception as exc:  # noqa: BLE001 - memory is an enhancement
             state.note(f"memory write failed ({type(exc).__name__}: {exc}); continuing")
 
+    # -- guardrail seam -----------------------------------------------------
+
+    def _before(self, state: LoopState) -> StopSignal | None:
+        return self._controller.before_iteration(state) if self._controller else None
+
+    def _after(self, state: LoopState, record: IterationRecord) -> StopSignal | None:
+        return self._controller.after_iteration(state, record) if self._controller else None
+
+    def _halt(self, signal: StopSignal | None, state: LoopState) -> bool:
+        """Apply a controller's stop signal. Returns True when the run must end."""
+        if signal is None:
+            return False
+        state.status = signal.status
+        state.note(signal.reason)
+        self._emit(
+            "guardrail",
+            iteration=state.iteration,
+            status=signal.status.value,
+            reason=signal.reason,
+        )
+        return True
+
     # -- the loop -----------------------------------------------------------
 
     def run(
@@ -169,7 +231,6 @@ class AgenticLoop:
         )
 
         started = time.perf_counter()
-        reason_usage = Usage()
         self._emit(
             "run_start",
             run_id=state.run_id,
@@ -182,6 +243,9 @@ class AgenticLoop:
         )
 
         while state.iteration < cap and state.status is RunStatus.RUNNING:
+            if self._halt(self._before(state), state):
+                break
+
             state.iteration += 1
             ctx.iteration = state.iteration
             iteration_started = time.perf_counter()
@@ -193,7 +257,7 @@ class AgenticLoop:
 
             # 2. REASON - one call, one decision.
             decision = reason(observation, self.provider, self.registry, self.config)
-            reason_usage = reason_usage + decision.usage
+            state.record_usage(decision.usage)
             self._emit(
                 "reason",
                 iteration=state.iteration,
@@ -205,7 +269,8 @@ class AgenticLoop:
             )
 
             # 3. ACT - execute, never decide.
-            result, tool_usage = act(decision, self.registry, ctx)
+            result, tool_usage = self._act(decision, self.registry, ctx)
+            state.record_usage(tool_usage)
             self._emit(
                 "act",
                 iteration=state.iteration,
@@ -213,6 +278,9 @@ class AgenticLoop:
                 ok=result.ok,
                 summary=result.summary,
                 error=result.error,
+                error_kind=result.error_kind.value,
+                retry_count=result.retry_count,
+                recovered=result.recovered,
                 duration_ms=result.duration_ms,
                 tokens=tool_usage.total_tokens,
             )
@@ -226,6 +294,7 @@ class AgenticLoop:
                 config=self.config,
                 provider=self.provider,
             )
+            state.record_usage(reflection.usage)
             self._emit(
                 "reflect",
                 iteration=state.iteration,
@@ -260,8 +329,14 @@ class AgenticLoop:
                 iteration=state.iteration,
                 score=state.workspace.percent,
                 best_score=state.best_score,
+                tokens_used=state.usage.total_tokens,
                 status=state.status.value,
             )
+
+            # A guardrail may override the agent's own verdict, but only to stop
+            # the run -- never to keep it going after Reflect said it was done.
+            if state.status is RunStatus.RUNNING:
+                self._halt(self._after(state, record), state)
 
         if state.status is RunStatus.RUNNING:
             state.status = RunStatus.MAX_ITERATIONS_REACHED
@@ -271,8 +346,12 @@ class AgenticLoop:
                 else f"stopped at the {cap}-iteration cap before any score was recorded"
             )
 
-        result = self._build_result(state, reason_usage + ctx.usage, time.perf_counter() - started)
-        self._emit("run_end", **result.to_dict())
+        result = self._build_result(state, state.usage, time.perf_counter() - started)
+        # The `harness` block is dropped: the loop never learns that a retry,
+        # a repair or a failover happened, so reporting zeroes for them here
+        # would be a confident lie. The runner emits `run_summary` with the
+        # real numbers once it has folded them in.
+        self._emit("run_end", **{k: v for k, v in result.to_dict().items() if k != "harness"})
         return result
 
     # -- output -------------------------------------------------------------
@@ -312,4 +391,4 @@ def _observation_event(observation: Observation) -> dict[str, t.Any]:
     }
 
 
-__all__ = ["AgenticLoop", "EventHook"]
+__all__ = ["ActFn", "AgenticLoop", "EventHook", "LoopController", "StopSignal"]

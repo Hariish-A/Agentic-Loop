@@ -9,22 +9,211 @@ If a session ends abruptly, read **▶ Resume here** at the top, diff it against
 
 | | |
 |---|---|
-| **Last completed** | Milestone 2 — Memory Integration (M2-1 … M2-10), plus the provider switch to GroqCloud |
-| **Next task** | **M3-1** — `harness/retry.py`: exponential backoff + jitter, `Retry-After`, retryable-vs-terminal classification |
-| **Already done from M3** | The **memory circuit breaker** (`memory/manager.py`) and **provider failover** (`cli.resolve_provider`) landed early. M3 moves failover inside the run loop and adds retry, tracing, guardrails and Docker. |
-| **Then** | M3-2 (fallbacks) → M3-3/4/5 (observability) → M3-6/7 (guardrails) → M3-8 (runner) → M3-10 (Docker) → M3-11 (doc) |
-| **Blocked on** | Nothing offline. **Add `GROQ_API_KEY` to `.env`** for live runs, then `python scripts/preflight.py --ping`. |
+| **Last completed** | Milestone 3 — Harness Engineering (M3-1 … M3-13). Verified **live** against GroqCloud. |
+| **Next task** | **M4-1** — final README pass (LLM choice + rationale, architecture diagram) |
+| **Then** | M4-2 (coverage + ruff + mypy) → M4-3 (CI) → M4-4 (demo video script) → M4-5 (solution PDF) → M4-6/7 (push, checklist) |
+| **Blocked on** | Nothing. `GROQ_API_KEY` is set and the live path is proven (`preflight --ping` OK, two full live runs completed). |
+| **Known gap** | `mypy` is not installed in `.venv`; M4-2 needs `pip install -r requirements-dev.txt` first. `src/agentic_rubric/web/` (added outside the M3 work) has one `ruff` SIM105 finding and still calls `AgenticLoop` directly rather than the `Runner`, so the browser demo shows no harness events. |
 
 **Verify the checkout is healthy before continuing:**
 
 ```bash
-.venv/Scripts/python.exe -m pytest -q                      # expect: 166 passed
-.venv/Scripts/python.exe -m ruff check src tests scripts   # expect: All checks passed!
+.venv/Scripts/python.exe -m pytest -q                      # expect: 242 passed
+.venv/Scripts/python.exe -m ruff check src tests scripts --exclude src/agentic_rubric/web
 .venv/Scripts/python.exe scripts/preflight.py              # config + provider chain
+.venv/Scripts/python.exe scripts/preflight.py --ping       # one real API call
 .venv/Scripts/python.exe scripts/memory_ab_demo.py         # memory A/B, offline
 PYTHONPATH=src .venv/Scripts/python.exe -m agentic_rubric.cli \
     --input samples/weak_essay.txt --provider mock         # full offline run
+PYTHONPATH=src .venv/Scripts/python.exe -m agentic_rubric.cli \
+    --input samples/weak_essay.txt --provider mock \
+    --simulate-failure rate_limit                          # harness recovery
+docker compose config --quiet                              # compose is valid
 ```
+
+---
+
+## 2026-08-27 — Milestone 3: Harness Engineering ✅
+
+**Status:** complete · **Tasks:** M3-1 … M3-13 · **Tests:** 242 passing (58 new here) · **Lint:** clean
+
+### Headline: the harness was proved without simulating anything
+
+A live run against GroqCloud's free tier hit **fifteen genuine HTTP 429s** in five iterations and
+completed anyway:
+
+```
+status      : target_reached
+trajectory  : 15.0% -> 32.5% -> 87.5%      (+72.5 points)
+elapsed     : 169.67s                       (~30s of work, 139s of honoured backoff)
+harness     : provider=groq:openai/gpt-oss-120b (fallbacks: ollama)
+              retries=15 repairs=0 failovers=0 tool_recoveries=0
+budget      : 30,092 / 200,000 tokens (15%)
+```
+
+All fifteen `Retry-After` headers were honoured in preference to computed backoff. An earlier run of
+the same command absorbed **16** (211s of backoff) and finished at 100.0%. Two runs, both completed
+— reproducible, not a lucky sample. Without `harness/retry.py` either run dies on its second call.
+
+Artifacts: `docs/demos/m3_live_groq_run.txt`, `m3_live_groq_trace.jsonl`, `m3_live_groq_summary.json`.
+
+### The design decision everything else follows from
+
+**`core/` contains no `try`/`except` at all.** The harness attaches through two new seams on
+`AgenticLoop`, both defaulting to "no harness" — **eleven lines** in `core/loop.py`:
+
+| Collaborator | Default | What the runner substitutes |
+|---|---|---|
+| `provider` | an `LLMProvider` | `ResilientProvider` — retry, salvage, repair, sticky failover |
+| `act_fn` | `core.act.act` | `ToolRecovery` — same signature, recovery ladder attached |
+| `controller` | `None` | `Guardrails` — budget, clock, cap, stuck detection |
+| `on_event` | renderer or nothing | tracer + renderer + logger, fanned out |
+
+`LoopController` can *only stop the run*. It cannot choose an action, edit the draft or change a
+score — a guardrail that could redirect the agent would be a fifth cognitive step hiding in the
+harness. Two tests pin that: the loop still runs with no harness at all, and a controller that tries
+to steer can only halt.
+
+### What was built
+
+| Area | Files | Notes |
+|---|---|---|
+| Retry | `harness/retry.py` | Backoff + full/equal jitter, `Retry-After` honoured and capped, separate tool policy |
+| Fallbacks | `harness/fallbacks.py` | Provider chain, repair ladder, typed tool recovery |
+| Guardrails | `harness/guardrails.py` | Budget (+80% warning), wall clock, iteration cap, ingestion cap |
+| Stuck | `harness/loop_detect.py` | Repeated action, draft A→B→A cycle, frozen score |
+| Injection | `harness/faults.py` | Seven failure kinds, each at the layer where the real thing occurs |
+| Runner | `harness/runner.py` | Composes all of it; annotates the RunResult afterwards |
+| Logging | `observability/logger.py` | JSON formatter, key- **and** pattern-based redaction |
+| Tracing | `observability/trace.py` | `runs/<run_id>/trace.jsonl` + `summary.json`, one envelope per event |
+| Console | `observability/render.py` | Harness events rendered inline with the step that provoked them |
+| Container | `Dockerfile`, `docker-compose.yml`, `scripts/warm_models.py` | Model baked in at build time |
+| Doc | `docs/03_harness_design.md` | Every decision paired with its failure mode |
+
+### Decisions made (and why)
+
+- **Two retry policies, not one.** Tools get 2 attempts and a 0.25s base; the transport gets 4 and
+  1.0s. A failing tool is usually failing *deterministically* — bad arguments, an empty diff — and
+  two of the five tools spend tokens on every attempt. The one extra attempt exists for the case
+  that genuinely is transient: the reviser's own model call getting rate-limited.
+- **`Retry-After` wins over computed backoff, but is capped at 60s.** The provider knows when its
+  window resets. A header asking for twenty minutes should trigger failover, not a run that looks
+  hung.
+- **A 400 is raised; a 404 fails over.** 404 means "this model id does not exist here", and a
+  deprecated model is exactly what a backup provider is for. Any other terminal error means *our*
+  request is wrong, and failing over would burn the whole chain to reproduce our own bug — replacing
+  a precise message with "every provider failed".
+- **Failover is sticky.** An agent loop makes ~3 calls per iteration; re-probing a backend that just
+  exhausted its retry budget would pay the full backoff on every one of them.
+- **Exactly one repair call.** A model that cannot produce valid JSON twice will not manage it on
+  the third try. Local salvage is tried first, and costs nothing.
+- **Tool recovery is typed, not string-matched.** The registry contains every exception to keep the
+  loop alive, which destroys the type — so it classifies at the point of containment
+  (`ErrorKind.VALIDATION / UNKNOWN_TOOL / TRANSIENT / RECOVERABLE / TERMINAL`). Otherwise the
+  harness would be pattern-matching on error strings.
+- **Sanitising only ever *removes* arguments.** Guessing a replacement would put words in the
+  agent's mouth and hide the mistake from the trace.
+- **A substituted tool is always read-only.** A degraded decision is one we do not fully understand,
+  and the wrong response to not understanding the situation is to start rewriting the user's text.
+- **The "do nothing" branch still emits an event.** So that "the harness did nothing" and "the
+  harness chose to do nothing" are distinguishable afterwards.
+- **JSONL, flushed per line, not one JSON document.** A trace is most useful when the run *did not*
+  finish, and a file that only becomes valid on its closing brace is useless in exactly that case.
+- **Redaction lives in the formatter, not at call sites.** A rule that depends on every caller
+  remembering it is not a rule. Key names *and* value patterns (`Bearer …`, `sk-…`, `gsk_…`) are
+  both matched.
+- **`cost_est` defaults to 0.0 and says so.** Every provider in the chain has a free path;
+  fabricating a price would be worse than an honest zero. `cost_per_1k_*` are config knobs.
+- **The loop's `run_end` omits the harness block.** It never learns that a retry happened, so
+  reporting zeroes would be a confident lie. The runner emits `run_summary` with the real numbers.
+- **Stuck detection counts *consecutive* repeats.** A healthy agent alternating score/revise calls
+  `score_against_rubric()` with identical empty arguments many times; a total count would flag it.
+
+### Bugs found and fixed during development
+
+**1. The memory circuit breaker could never open.** `--simulate-failure memory_down` fails *reads
+only* — a corrupt index or a locked reader, the realistic half-outage. The first run showed the
+breaker never tripping. `MemoryManager` counted "consecutive failures" in **one shared integer
+across every operation**, and since the loop writes after every Reflect, each successful write reset
+the failing read's streak. The run would have paid for a failing read on every iteration, forever,
+while reporting itself healthy. Fixed by counting per operation.
+
+This is the **second** time in this project an error-containment mechanism has hidden a bug from
+itself, and both were caught by a test asserting behaviour *changed* rather than "it did not raise".
+
+**2. Reflect's token usage was never counted.** Wiring the budget guardrail required a running
+total, which exposed that `RunResult` summed Reason's usage and the tools' but silently dropped
+Reflect's — roughly a third of the spend. The budget would have been enforced against a number a
+third too low. `test_token_accounting_includes_every_call` now counts against the provider's own
+call log so the assertion cannot drift with the loop's shape.
+
+**3. A reasoning model can return HTTP 200 with nothing in it.** `preflight --ping` reported Groq
+replying `''`. `openai/gpt-oss-120b` spends output tokens on an internal `reasoning` field *before*
+emitting content, so a `max_tokens` that looks generous returns a successful, empty response —
+which would have let `revise_text` replace the user's draft with an empty string. Two fixes: the
+client now raises `LLMParseError` when content is empty **and** `finish_reason=length`, naming
+`llm.max_tokens` as the cure; and `llm.max_tokens` went from 2048 to 4096 with the reason written
+next to it in the config. Neither was anticipated — both came from running it live.
+
+### Verification evidence
+
+```
+$ .venv/Scripts/python.exe -m pytest -q
+242 passed in 6.0s
+    test_config 12   test_harness 58   test_llm_layer 42   test_loop 30
+    test_memory 31   test_rubric 19    test_tools 34       test_web 16
+    (test_harness and the two new test_llm_layer cases are this milestone's;
+     test_web arrived with the browser demo, alongside but outside M3)
+
+$ .venv/Scripts/python.exe -m ruff check src tests scripts --exclude src/agentic_rubric/web
+All checks passed!
+
+$ .venv/Scripts/python.exe scripts/preflight.py --ping
+[ ok ] groq:openai/gpt-oss-120b replied 'ready'    # model id confirmed against a live account
+  tokens in/out : 87/16      latency : 722 ms
+
+$ docker compose config --quiet                     # valid
+```
+
+All seven injected failures, each recovering (transcripts in `docs/demos/m3_failure_*.txt`):
+
+```
+rate_limit     retry 1 on mock after 0.05s (Retry-After)      -> target_reached
+server_error   retry 1 on mock after 0.843s (backoff)         -> target_reached
+bad_json       unusable reply: sent one repair prompt         -> target_reached
+provider_down  failover mock-primary -> mock                  -> target_reached
+tool_error     revise_text failed; backoff_retry              -> target_reached
+memory_down    breaker opens after 3; "running without memory"-> target_reached
+budget         [token_budget] 1,080 of 900 spent -> STOP      -> budget_exhausted, best draft kept
+```
+
+### Open items carried forward
+
+- **`Dockerfile` and `docker-compose.yml` are unbuilt.** `docker compose config` validates, but
+  Docker Desktop's engine was not running on this machine, so `docker build` has never executed.
+  The layer ordering and the `warm_models.py` step are reasoned, not observed. **Build it before
+  the submission.**
+- **`mypy` is not installed**, so the M3 code is unchecked against the project's
+  `disallow_untyped_defs`. M4-2.
+- **The browser demo (`src/agentic_rubric/web/`) still calls `AgenticLoop` directly.** It was added
+  alongside this work and predates the `Runner`, so it shows no retry, repair or guardrail events.
+  Switching it to `Runner` is a small change and would make the demo strictly better.
+- **The stuck detector's `score_plateau` signal barely earns its place.** Reflect's own
+  `min_improvement` rule fires first in every realistic configuration. Kept because the two answer
+  to different config knobs, but it is the first thing I would cut.
+- **The token budget is enforced between iterations, not within one.** An iteration that revises a
+  20,000-character draft can overshoot by a few thousand tokens. Enforcing mid-iteration means
+  threading the guardrail into the tool context, putting budget logic inside tool handlers — a worse
+  trade than a bounded overshoot.
+- **Wall-clock is checked at iteration boundaries only.** One hung call can exceed the limit by the
+  provider timeout (90s on Groq). The real fix is a deadline threaded into the `httpx` client, which
+  would give the timeout two owners.
+- **`cost_est` is per-event and priced at the *active* provider**, so a run that fails over mid-way
+  prices its early events at the new rate. The `summary.json` total is computed once at the end and
+  is correct; the per-event column is indicative.
+- **Repair could be smarter and is not.** It states the error and re-asks. It does not narrow the
+  tool set, lower the temperature, or reduce `max_tokens` to make truncation less likely. All three
+  are cheap; I had no evidence to choose between them and did not want three unmeasured knobs.
 
 ---
 

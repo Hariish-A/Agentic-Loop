@@ -1,9 +1,14 @@
 """Human-readable console rendering of loop events.
 
-Consumes the same ``on_event`` stream the Milestone 3 JSONL tracer will attach
-to. Two subscribers, one event source: what a reviewer watches on screen and
-what gets written to the trace file cannot drift apart, because they are fed
-from the same call.
+Consumes the same ``on_event`` stream the JSONL tracer attaches to. Two
+subscribers, one event source: what a reviewer watches on screen and what gets
+written to the trace file cannot drift apart, because they are fed from the
+same call.
+
+Harness events (retry, repair, failover, tool recovery, guardrail trips) render
+inline with the step that provoked them, marked ``!``. Recovery that is invisible
+is indistinguishable from a slow happy path, and a reviewer watching a demo has
+no other way to tell that a failure was handled rather than absent.
 
 Deliberately ASCII-only. Box-drawing characters and emoji render as mojibake in
 a Windows console under a legacy code page, and a demo video is not the place to
@@ -22,6 +27,7 @@ STEP_LABEL = {
     "reason": "REASON  ",
     "act": "ACT     ",
     "reflect": "REFLECT ",
+    "harness": "HARNESS ",
 }
 
 
@@ -157,6 +163,45 @@ class ConsoleRenderer:
         if payload.get("next_focus"):
             self._write(f"            next focus: {payload['next_focus']}")
 
+    # -- harness events -----------------------------------------------------
+
+    def _harness(self, text: str) -> None:
+        self._write(f"  {STEP_LABEL['harness']}  ! {text}")
+
+    def _on_retry(self, payload: dict[str, t.Any]) -> None:
+        source = "Retry-After" if payload.get("honoured_retry_after") else "backoff"
+        self._harness(
+            f"retry {payload.get('attempt')} on {payload.get('provider')} after "
+            f"{payload.get('delay_s')}s ({source}): {payload.get('error_type')}"
+        )
+
+    def _on_repair(self, payload: dict[str, t.Any]) -> None:
+        method = payload.get("method")
+        label = "salvaged the tool call locally" if method == "local_salvage" else (
+            "sent one repair prompt"
+        )
+        self._harness(f"unusable reply from {payload.get('provider')}: {label}")
+
+    def _on_failover(self, payload: dict[str, t.Any]) -> None:
+        destination = payload.get("to") or "nothing left in the chain"
+        self._harness(f"failover {payload.get('from')} -> {destination}")
+        self._write(_wrap(str(payload.get("reason") or ""), self.width, " " * 14))
+
+    def _on_tool_recovery(self, payload: dict[str, t.Any]) -> None:
+        target = payload.get("retry_as")
+        outcome = f"-> {target}" if target else "(handed back to the agent as an observation)"
+        self._harness(f"{payload.get('action')} failed; {payload.get('method')} {outcome}")
+
+    def _on_budget_warning(self, payload: dict[str, t.Any]) -> None:
+        self._harness(str(payload.get("reason") or "token budget warning"))
+
+    def _on_guardrail_trip(self, payload: dict[str, t.Any]) -> None:
+        self._harness(f"[{payload.get('guardrail')}] {payload.get('detail')}")
+
+    def _on_guardrail(self, payload: dict[str, t.Any]) -> None:
+        self._write(f"  {STEP_LABEL['harness']}  STOP ({payload.get('status')})")
+        self._write(_wrap(str(payload.get("reason") or ""), self.width, " " * 12))
+
     def _on_iteration_end(self, payload: dict[str, t.Any]) -> None:
         self._write()
 
@@ -187,6 +232,36 @@ class ConsoleRenderer:
             f"{tokens.get('output', 0):,} out"
         )
         self._write(f"  elapsed     : {payload.get('elapsed_s', 0.0):.2f}s")
+
+        for note in payload.get("notes") or []:
+            self._write(f"  ! {note}")
+
+    def _on_run_summary(self, payload: dict[str, t.Any]) -> None:
+        """What the harness had to do. Emitted by the runner, not the loop."""
+        harness = payload.get("harness") or {}
+        guards = payload.get("guardrails") or {}
+        self._write(
+            f"  harness     : provider={harness.get('provider') or 'n/a'} "
+            f"retries={harness.get('retries', 0)} "
+            f"repairs={harness.get('repairs', 0)} "
+            f"failovers={harness.get('failovers', 0)} "
+            f"tool_recoveries={harness.get('tool_recoveries', 0)}"
+        )
+        if harness.get("degraded_memory"):
+            self._write("                memory DEGRADED (circuit breaker open)")
+        tokens = guards.get("tokens") or {}
+        if tokens.get("budget"):
+            self._write(
+                f"  budget      : {tokens.get('used', 0):,} / {tokens['budget']:,} tokens "
+                f"({(tokens.get('fraction') or 0) * 100:.0f}%)"
+            )
+        if guards.get("triggered"):
+            self._write(f"  guardrails  : {', '.join(guards['triggered'])}")
+        cost = harness.get("cost_est_usd")
+        if isinstance(cost, (int, float)) and cost > 0:
+            self._write(f"  cost (est)  : ${cost:.4f}")
+        if harness.get("trace"):
+            self._write(f"  trace       : {harness['trace']}")
         for note in payload.get("notes") or []:
             self._write(f"  ! {note}")
         self._write()

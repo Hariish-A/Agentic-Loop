@@ -66,6 +66,12 @@ class LLMProviderConfig:
     #: strips the field instead of the caller having to know which backend it
     #: is talking to.
     supports_message_name: bool = True
+    #: Price per 1,000 tokens, for the ``cost_est`` column in the trace. Zero by
+    #: default: every provider in the shipped chain has a free path, and a
+    #: fabricated price is worse than an honest zero. Set these to your plan's
+    #: rates and the estimate becomes real without a code change.
+    cost_per_1k_input: float = 0.0
+    cost_per_1k_output: float = 0.0
 
     def api_key(self, env: t.Mapping[str, str] | None = None) -> str | None:
         """Read this provider key from the environment, or ``None`` if unset."""
@@ -130,6 +136,14 @@ class MemoryConfig:
 
 @dataclass(frozen=True)
 class RetryConfig:
+    """Backoff policy. LLM calls and tool calls get separate budgets.
+
+    A tool retry is cheap in latency and expensive in tokens (two of the five
+    tools call a model), and a failing tool is far more often deterministic
+    than a failing HTTP request. So tools get fewer attempts and a shorter
+    base delay than the transport does.
+    """
+
     max_attempts: int = 4
     base_delay_s: float = 1.0
     max_delay_s: float = 30.0
@@ -137,6 +151,15 @@ class RetryConfig:
     retry_on_status: list[int] = field(
         default_factory=lambda: [408, 409, 425, 429, 500, 502, 503, 504]
     )
+    tool_max_attempts: int = 2
+    tool_base_delay_s: float = 0.25
+    #: Repair round trips allowed per unparseable response, before the safe
+    #: default action is taken. One: a model that cannot produce valid JSON
+    #: twice will not produce it on the third try either.
+    repair_attempts: int = 1
+    #: Cap on ``Retry-After``. A provider asking for a 20-minute wait should
+    #: trigger failover, not a run that appears to have hung.
+    max_retry_after_s: float = 60.0
 
 
 @dataclass(frozen=True)
@@ -144,9 +167,18 @@ class GuardrailsConfig:
     token_budget: int = 200_000
     token_warn_ratio: float = 0.8
     wall_clock_timeout_s: float = 600.0
+    #: How much of the draft is rendered into a prompt. Applied by Perceive,
+    #: which is where the prompt view is built; measurements still cover the
+    #: whole document.
     max_input_chars: int = 20_000
+    #: Hard ingestion cap, applied once before the run starts. A different job
+    #: from ``max_input_chars``: this one bounds what the process holds and
+    #: diffs at all, so a 40 MB paste cannot make the loop crawl.
+    max_document_chars: int = 200_000
     repeat_action_threshold: int = 3
     stuck_score_epsilon: float = 0.5
+    #: Scorecards inspected by the stuck detector's plateau signal.
+    stuck_score_window: int = 3
 
 
 @dataclass(frozen=True)
@@ -155,6 +187,12 @@ class LoggingConfig:
     format: str = "json"
     trace_dir: str = "runs"
     redact_keys: list[str] = field(default_factory=lambda: ["api_key", "authorization"])
+    #: Write ``runs/<run_id>/trace.jsonl`` and ``summary.json``. Off makes the
+    #: run leave no disk footprint, which the A/B demo script wants.
+    trace_enabled: bool = True
+    #: Characters of any single string field kept in the trace. Drafts are long
+    #: and a trace nobody opens is not observability.
+    trace_max_field_chars: int = 2000
 
 
 @dataclass(frozen=True)

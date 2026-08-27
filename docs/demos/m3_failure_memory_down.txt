@@ -1,0 +1,106 @@
+note: semantic recall via fastembed (384d)
+note: memory reads will fail; the circuit breaker should open
+{"ts": "2026-08-27T06:51:04.254+00:00", "level": "INFO", "logger": "agentic_rubric.runner", "message": "run_summary", "run_id": "run_00cf8559a097", "session_id": "sim-memory_down", "status": "target_reached", "harness": {"provider": "mock:mock-1", "retries": 0, "failovers": 0, "repairs": 0, "tool_recoveries": 0, "degraded_memory": true, "cost_est_usd": 0.0, "trace": "D:\\Official\\Projects\\Agentic Loop\\runs\\sim\\run_00cf8559a097\\trace.jsonl"}}
+trace: D:\Official\Projects\Agentic Loop\runs\sim\run_00cf8559a097\trace.jsonl
+==== RUN START =========================================================================
+  run       : run_00cf8559a097
+  session   : sim-memory_down
+  rubric    : essay_argumentative
+  provider  : mock:mock-1
+  memory    : SQLiteMemory[vector+keyword (fastembed (384d))] memory.db [fault injected: reads fail]
+  target    : 85%   max iterations: 6
+
+==== ITERATION 1 =======================================================================
+  PERCEIVE  [??????????????????????????????????]  unscored
+  REASON    -> score_against_rubric
+            "The draft is unscored, so I cannot tell where the points are. Measure
+            first."
+  ACT       score_against_rubric [ok] (0 ms)
+            Scored 28.7%. Biggest opportunities: thesis 2/5 (18.8pts available),
+            evidence 2/5 (18.8pts available).
+  REFLECT   complete=False
+            next focus: thesis
+
+==== ITERATION 2 =======================================================================
+  PERCEIVE  [##########-------------------|----]  28.7%
+  REASON    -> analyze_text
+            "No prior experience with this rubric was recalled. Measure the draft
+            directly before spending a revision on a guess."
+  ACT       analyze_text [ok] (2 ms)
+            words=202, sentences=13, avg_sentence=15.5w (sd=5.1, longest=23w),
+            flesch=50.3, hedges=7, filler=4, passive=6. 5/5 structural checks failing:
+            concrete figures or years cited; evidence attributed to a named source; an
+            opposing view is engaged; hedging phrases avoided; filler constructions
+            avoided.
+  REFLECT   complete=False
+            next focus: thesis
+
+==== ITERATION 3 =======================================================================
+  PERCEIVE  [##########-------------------|----]  28.7%
+            words=202 flesch=50.3 failing_probes=5 recalled=0
+            ! running without memory: memory disabled after 3 consecutive failures; last: memory recall failed (OSError: injected fault: memory index is unreadable)
+  REASON    -> revise_text
+            "Thesis and Position, Evidence and Support carry the most weighted headroom
+            at 28.7%, so editing there buys the most points."
+  ACT       revise_text [ok] (2 ms)
+            Revised for thesis, evidence: 202 -> 243 words (+41), similarity 0.95. The
+            draft is now unscored - score it to see the effect.
+  REFLECT   complete=False
+            LESSON: On this rubric, targeting the two highest-weighted criteria first
+            moves the total faster than fixing the lowest raw score.
+            next focus: reasoning
+
+==== ITERATION 4 =======================================================================
+  PERCEIVE  [??????????????????????????????????]  unscored
+            words=243 flesch=47.3 failing_probes=2 recalled=0
+            ! running without memory: memory disabled after 3 consecutive failures; last: memory recall failed (OSError: injected fault: memory index is unreadable)
+  REASON    -> score_against_rubric
+            "The draft is unscored, so I cannot tell where the points are. Measure
+            first."
+  ACT       score_against_rubric [ok] (1 ms)
+            Scored 66.2%. Biggest opportunities: reasoning 3/5 (10.0pts available),
+            style_clarity 3/5 (7.5pts available).
+  REFLECT   complete=False  delta=+37.5pts
+            next focus: reasoning
+
+==== ITERATION 5 =======================================================================
+  PERCEIVE  [#######################------|----]  66.2%
+            words=243 flesch=47.3 failing_probes=2 recalled=0
+            ! running without memory: memory disabled after 3 consecutive failures; last: memory recall failed (OSError: injected fault: memory index is unreadable)
+  REASON    -> revise_text
+            "Reasoning and Counterargument, Style and Clarity carry the most weighted
+            headroom at 66.2%, so editing there buys the most points."
+  ACT       revise_text [ok] (0 ms)
+            Revised for reasoning, style_clarity: 243 -> 284 words (+41), similarity
+            0.95. The draft is now unscored - score it to see the effect.
+  REFLECT   complete=False
+            LESSON: Unattributed figures score no better than no figures; naming the
+            source is what lifts the evidence criterion.
+            next focus: organization
+
+==== ITERATION 6 =======================================================================
+  PERCEIVE  [??????????????????????????????????]  unscored
+            words=284 flesch=44.2 failing_probes=2 recalled=0
+            ! running without memory: memory disabled after 3 consecutive failures; last: memory recall failed (OSError: injected fault: memory index is unreadable)
+  REASON    -> score_against_rubric
+            "The draft is unscored, so I cannot tell where the points are. Measure
+            first."
+  ACT       score_against_rubric [ok] (1 ms)
+            Scored 96.2%. Biggest opportunities: organization 4/5 (3.8pts available),
+            thesis 5/5 (0.0pts available).
+  REFLECT   complete=True  delta=+30.0pts
+
+==== RUN COMPLETE ======================================================================
+  status      : target_reached
+  iterations  : 6
+  trajectory  : 28.7% -> 66.2% -> 96.2%
+  score       : 28.7% -> 96.2%  (+67.5 points)
+  best        : [#############################|###-]  target 85%
+  tokens      : 2,040 in / 1,020 out
+  elapsed     : 0.32s
+  harness     : provider=mock:mock-1 retries=0 repairs=0 failovers=0 tool_recoveries=0
+                memory DEGRADED (circuit breaker open)
+  budget      : 3,060 / 200,000 tokens (2%)
+  trace       : D:\Official\Projects\Agentic Loop\runs\sim\run_00cf8559a097\trace.jsonl
+  ! memory degraded during the run: memory disabled after 3 consecutive failures; last: memory recall failed (OSError: injected fault: memory index is unreadable)
+

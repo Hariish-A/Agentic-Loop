@@ -64,10 +64,25 @@ class MemoryManager(MemoryStore):
     def __init__(self, store: MemoryStore, config: MemoryConfig) -> None:
         self.store = store
         self.config = config
-        self.failures = 0
+        #: Consecutive failures **per operation**. Counting them in one shared
+        #: total looks simpler and is wrong: the realistic outage is a store
+        #: whose reads fail while its writes still work (a corrupt index, a
+        #: locked reader), and a shared counter is reset by every successful
+        #: write, so the breaker never opens and the run pays for a failing
+        #: read on every single iteration. Found by running
+        #: ``--simulate-failure memory_down``, which is what that flag is for.
+        self._failures: dict[str, int] = {}
         self.degraded = False
         self.degraded_reason = ""
         self.notes: list[str] = list(getattr(store, "notes", []))
+
+    @property
+    def failures(self) -> int:
+        """The worst current streak across operations, for reporting."""
+        return max(self._failures.values(), default=0)
+
+    def failures_of(self, operation: str) -> int:
+        return self._failures.get(operation, 0)
 
     # -- failure containment ------------------------------------------------
 
@@ -77,17 +92,18 @@ class MemoryManager(MemoryStore):
         try:
             result = fn()
         except Exception as exc:  # noqa: BLE001 - the loop must survive this
-            self.failures += 1
+            streak = self._failures.get(operation, 0) + 1
+            self._failures[operation] = streak
             reason = f"{operation} failed ({type(exc).__name__}: {exc})"
             self.notes.append(reason)
-            if self.failures >= CIRCUIT_BREAKER_THRESHOLD:
+            if streak >= CIRCUIT_BREAKER_THRESHOLD:
                 self.degraded = True
                 self.degraded_reason = (
-                    f"memory disabled after {self.failures} consecutive failures; last: {reason}"
+                    f"memory disabled after {streak} consecutive failures; last: {reason}"
                 )
                 self.notes.append(self.degraded_reason)
             return default
-        self.failures = 0
+        self._failures[operation] = 0
         return result
 
     # -- write --------------------------------------------------------------
@@ -231,7 +247,7 @@ class MemoryManager(MemoryStore):
             {
                 "degraded": self.degraded,
                 "degraded_reason": self.degraded_reason,
-                "consecutive_failures": self.failures,
+                "consecutive_failures": dict(self._failures),
                 "policy": {
                     "lesson_scope": self.config.lesson_scope,
                     "episodic_scope": self.config.episodic_scope,
