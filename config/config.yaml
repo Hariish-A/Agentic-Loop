@@ -15,11 +15,36 @@
 
 llm:
   # Name of the provider to try first; must be a key under `providers`.
-  primary: groq
+  primary: gemini
   # Ordered failover chain used when `primary` is unavailable.
-  fallbacks: [ollama]
+  fallbacks: [groq, ollama]
 
   providers:
+    gemini:
+      # Google AI Studio, via its OpenAI compatibility layer.
+      # https://ai.google.dev/gemini-api/docs/openai
+      #
+      # Primary because of one number: the free tier allows ~250,000 tokens per
+      # minute, against Groq's 8,000 for gpt-oss-120b. A single Reason call in
+      # this loop measures 2,100-2,900 tokens and a full iteration ~5,500, so on
+      # Groq three calls exhaust the minute and every later call is rate
+      # limited. One measured run absorbed eight 429s and then hit the 200,000
+      # tokens-per-day ceiling outright. The binding constraint here is requests
+      # per minute (10-15) instead, which four calls per iteration fits inside.
+      base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+      # Verify against your own account with `preflight --ping`; Google renames
+      # free-tier models more often than it changes the quotas. Known-good
+      # alternatives: gemini-2.5-flash-lite (higher requests/day, weaker),
+      # gemini-3-flash (newer, if your project has it).
+      model: gemini-2.5-flash
+      api_key_env: GEMINI_API_KEY
+      timeout_s: 90.0
+      supports_tools: true
+      # The compatibility layer is partial and messages[].name is not part of
+      # the documented surface. Nothing here needs it, so it is stripped rather
+      # than discovered as a 400 later.
+      supports_message_name: false
+
     groq:
       # GroqCloud speaks the OpenAI chat-completions dialect.
       # https://console.groq.com/docs/openai
@@ -28,6 +53,8 @@ llm:
       api_key_env: GROQ_API_KEY
       timeout_s: 90.0
       supports_tools: true
+      # Kept as the second link: fast when it has budget, and a genuinely
+      # different vendor, so a Google outage does not take the run with it.
       # Groq explicitly does not accept messages[].name. Harmless today (each
       # loop step sends a fresh conversation, so no tool-result turns are
       # replayed) but declared so the client strips it rather than 400-ing the
@@ -37,7 +64,8 @@ llm:
     ollama:
       # Local fallback. Needs `ollama serve` and the model pulled.
       base_url: http://localhost:11434/v1
-      model: qwen2.5:7b-instruct
+      # Match the tool-capable model installed in the local Ollama instance.
+      model: qwen3:latest
       api_key_env: OLLAMA_API_KEY
       timeout_s: 180.0
       supports_tools: true
@@ -56,7 +84,7 @@ llm:
   # Sampling defaults. Individual call sites may override: the judge runs
   # colder than the reviser, because scoring must be reproducible.
   # Note: Groq converts temperature 0 to 1e-8, so the judge is near
-  # deterministic there rather than exactly deterministic.
+  # deterministic there rather than exactly deterministic. Gemini honours 0.
   temperature: 0.3
   # 4096, not 2048: openai/gpt-oss-120b is a reasoning model and spends output
   # tokens on an internal reasoning field before it emits any content. A cap

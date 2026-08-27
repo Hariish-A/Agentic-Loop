@@ -27,6 +27,94 @@ If a session ends abruptly, read **▶ Resume here** at the top, diff it against
 
 ---
 
+## 2026-08-27 — Admission gate + Gemini primary ✅
+
+**Status:** complete · **Tests:** 345 passing (24 new) · **Lint:** clean
+
+### The bug this closes
+
+A live run on the input `hi, good morning` produced:
+
+```
+ITERATION 1  score_against_rubric → 0.0%   (thesis 1/5, evidence 1/5)
+ITERATION 2  revise_text          → 3 → 170 words, similarity 0.00
+ITERATION 3  score_against_rubric → 85.0%  → status: target_reached
+```
+
+The agent scored a greeting as an essay, **fabricated a 170-word document with zero similarity to
+the input**, scored its own invention, and reported success — spending ~17,000 tokens and eight
+rate-limit retries to do it. This is the worst failure available to this product: every other mode
+either stops the run or degrades visibly, while this one *succeeds loudly* and silently replaces the
+user's text.
+
+Nothing caught it because both reviser guards were **one-sided**: `MIN_RETAINED_WORD_RATIO` catches
+shrinkage (170/3 passes), `NO_CHANGE_SIMILARITY` catches sameness (0.00 passes). And there was no
+input check at all beyond `if not draft.strip()`.
+
+### What was built
+
+**`core/admission.py`** — a deterministic gate, run **once before the loop, with no model call**.
+Word and sentence floors, rubric-declared with a config default. Rejection returns a normal
+`RunResult` with the new `RunStatus.INPUT_REJECTED`, the user's text handed back **unchanged**, and
+a message written for a person rather than a log.
+
+**Symmetric reviser guards** — `MAX_EXPANSION_RATIO = 3.0` and a vocabulary-retention floor.
+
+### Result
+
+| | Before | After |
+|---|---|---|
+| Tokens spent | ~17,000 | **0** |
+| Wall clock | ~4 min (8 retries) | **0.8 s** |
+| Reported status | `target_reached` at 85% | `input_rejected` |
+| Text returned | 170 fabricated words | the input, unchanged |
+
+### Decisions made (and why)
+
+- **The gate is deterministic, not a model call.** Asking a model "is this gradeable?" costs a call,
+  can be wrong, and can be talked out of its answer by the next prompt. Word counts cannot.
+- **It lives outside the four steps.** Admission is not a cognitive step. Putting it in Perceive
+  would re-run it every iteration against a draft the agent has since legitimately grown, and would
+  blur the boundary the whole design rests on.
+- **Thresholds are rubric-declared** (`min_words`, `min_sentences`; essay 60/3, bug report 30/2)
+  with a config default. "Long enough to grade" is a property of the rubric, not of the agent.
+- **A refusal is a verdict, not an exception.** It carries a run id, a reason and the original text.
+  `is_success` is False and `is_guardrail_stop` is False — it is neither.
+- **The retention check uses vocabulary overlap, not `difflib` similarity.** `difflib` compares
+  *lines*, so a legitimate paragraph-level rewrite and a fabrication both score near zero there.
+  Vocabulary survival separates them: a real revision keeps the subject matter.
+- **The retention floor is skipped below 25 original words**, where the denominator is too small to
+  mean anything; the expansion bound catches that range instead.
+
+### Provider switch: Gemini primary
+
+Chain is now `gemini → groq → ollama`. The reason is one measured number: Groq's free tier allows
+**8,000 TPM** for `openai/gpt-oss-120b`, while this loop spends **~5,500 tokens per iteration**
+(reason 2,140 + judge 2,502 + reflect 877, from `runs/run_a706dac8c81c/trace.jsonl`). Three calls
+exhaust the minute. One run also hit the **200,000 tokens-per-day** ceiling outright — about six
+full runs per day.
+
+Gemini's free tier is ~**250,000 TPM**, so the binding constraint becomes requests per minute
+(10–15), which four calls per iteration fits inside. Groq stays as the second link: fast when it has
+budget, and a different vendor, so one provider's outage does not take the run with it.
+
+`supports_message_name: false` for Gemini as well — its compatibility layer is partial and nothing
+here needs the field.
+
+### Open items carried forward
+
+- **The model id `gemini-2.5-flash` is unverified against a live account.** Google renames
+  free-tier models more often than it changes quotas. Run `preflight --ping` first.
+- **The gate is a length check, not a relevance check.** A 200-word grocery list still passes and
+  will be scored as a bad essay. The cheap next layer is to treat "the judge returned the scale
+  minimum on *every* criterion" as a wrong-genre signal and stop there.
+- **`MAX_EXPANSION_RATIO = 3.0` is reasoned, not measured.** It bounds growth per iteration rather
+  than in total, since each iteration re-baselines.
+- **A Windows encoding bug remains:** a `‑` in model output crashed the trace subscriber
+  (`'charmap' codec can't encode`). The run survived; the event is missing from the trace.
+
+---
+
 ## 2026-08-27 — The application UI ✅
 
 **Status:** complete · **Tests:** 316 passing (29 rewritten in `test_web.py`) · **Coverage:** 90%

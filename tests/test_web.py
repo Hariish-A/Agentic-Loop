@@ -31,9 +31,18 @@ from agentic_rubric.tools.registry import ToolContext
 from agentic_rubric.web import server
 
 CONFIG = "config/config.yaml"
+# Long enough to clear the essay rubric's admission floor (60 words, 3
+# sentences) and still deliberately weak: hedged throughout, no figures, no
+# attribution, no counterargument. The gate is about admissibility, not quality.
 DRAFT = (
-    "Remote work is somewhat complicated. It could be said that there are many views. "
-    "Arguably both sides have points worth considering in various ways."
+    "Remote work is somewhat complicated. It could be said that there are many "
+    "views on the subject, and arguably both sides have points worth considering "
+    "in various ways. Some companies have moved to remote work and some have not, "
+    "which shows that there is not really a consensus. Workers seem to like it, "
+    "and it is generally believed that productivity may be affected in various "
+    "ways. Collaboration is a thing that some managers worry about, and company "
+    "culture is often brought up too. In conclusion, organisations will need to "
+    "decide for themselves what works best."
 )
 
 
@@ -181,7 +190,12 @@ def test_the_bug_report_rubric_runs_through_the_same_code(tmp_path: Path) -> Non
     events = collect(base_body(
         tmp_path,
         rubric_id="bug_report",
-        text="The export is broken again. It does not work. Please fix it quickly.",
+        text=(
+            "The export is broken again and it does not work at all. I tried it "
+            "this morning and just got an error page instead of a file. This has "
+            "happened before and nobody ever fixes it properly. Please fix it "
+            "quickly, a lot of people are complaining about it."
+        ),
     ))
     assert final(events)["rubric_id"] == "bug_report"
 

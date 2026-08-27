@@ -32,27 +32,34 @@ def main() -> int:
     parser.add_argument("--no-browser", action="store_true", help="do not open a browser")
     args = parser.parse_args()
 
-    try:
-        from dotenv import load_dotenv
+    # Importing the server loads .env and records what happened; a blank
+    # variable in the shell no longer shadows the real key in the file.
+    from agentic_rubric.web.server import ENV_REPORT, ServerBindError, serve
 
-        load_dotenv(ROOT / ".env")
-    except ImportError:
-        # Not fatal: the key may already be exported in the environment.
-        print("note: python-dotenv is not installed; reading keys from the environment only")
-
-    from agentic_rubric.web.server import serve
+    for note in ENV_REPORT.notes:
+        print(f"note: {note}")
+    if ENV_REPORT.error:
+        print(f"note: {ENV_REPORT.error}")
 
     url = f"http://{args.host}:{args.port}"
-    if not args.no_browser:
-        # Fire after the server is listening, but do not block startup on it.
-        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
 
     print("=" * 64)
     print("  Agentic Rubric Loop")
     print(f"  {url}")
     print("  Live providers only. Set GROQ_API_KEY in .env, or run `ollama serve`.")
+    print(f"  .env: {ENV_REPORT.path} "
+          f"({'found' if ENV_REPORT.exists else 'NOT FOUND'})")
     print("=" * 64)
-    serve(args.host, args.port)
+    def open_browser(ready_url: str) -> None:
+        if not args.no_browser:
+            # Binding has succeeded, so this can never open a stale server.
+            threading.Timer(0.2, lambda: webbrowser.open(ready_url)).start()
+
+    try:
+        serve(args.host, args.port, on_ready=open_browser)
+    except ServerBindError as exc:
+        print(f"error: {exc}")
+        return 2
     return 0
 
 

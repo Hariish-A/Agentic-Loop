@@ -47,6 +47,9 @@ class RunStatus(str, Enum):
     STUCK = "stuck"  # the harness loop detector saw a repeated cycle
     BUDGET_EXHAUSTED = "budget_exhausted"  # the token budget guardrail tripped
     TIMEOUT = "timeout"  # the wall-clock guardrail tripped
+    #: The submission was refused before any model call: too short, or not the
+    #: kind of document this rubric grades. Not an error - a normal verdict.
+    INPUT_REJECTED = "input_rejected"
     ERROR = "error"
 
     @property

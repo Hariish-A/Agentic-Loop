@@ -112,6 +112,10 @@ class LoopConfig:
     min_improvement: float = 1.0
     plateau_patience: int = 2
     revise_candidates: int = 1
+    #: Admission floor, used when the rubric does not declare its own. Applied
+    #: once before the loop starts, so an ungradeable submission costs no tokens.
+    min_input_words: int = 40
+    min_input_sentences: int = 2
 
 
 @dataclass(frozen=True)

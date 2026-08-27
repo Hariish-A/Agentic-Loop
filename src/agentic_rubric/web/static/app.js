@@ -295,6 +295,22 @@ function onEvent(name, data) {
       $("summaryTop").innerHTML = runHeader(data);
       break;
 
+    // The admission gate refused the submission before any model call. This is
+    // a verdict, not an error and not a failed run: say why, say what to do,
+    // and do not render an empty results table underneath it.
+    case "input_rejected":
+      setPill($("statusPill"), "warn", "not scoreable");
+      S.notes.push({ text: data.reason, bad: true });
+      (data.checks || []).forEach((c) => {
+        if (/FAILED/.test(c)) S.notes.push({ text: c, bad: true });
+      });
+      S.notes.push({
+        text: "No model call was made, so this cost nothing.",
+        bad: false,
+      });
+      renderNotes();
+      break;
+
     case "iteration_start":
       S.iterations.push({ n: data.iteration, steps: [] });
       renderTimeline();
@@ -318,6 +334,9 @@ function onEvent(name, data) {
       S.memory = data.memory || S.memory;
       setPill($("statusPill"), data.status === "target_reached" ? "ok" : "warn",
               String(data.status || "done").replaceAll("_", " "));
+      // A refused submission has no scores, no stages and no trace to show;
+      // the reason is already on screen from the input_rejected event.
+      if (data.status === "input_rejected") { counts(); return; }
       renderMemoryPill();
       $("summaryTop").innerHTML = summaryCard(data);
       renderTextTab();
@@ -807,6 +826,7 @@ function traceDetail(r) {
 
 function renderSetupTab() {
   const d = (S.boot && S.boot.defaults) || {};
+  const env = (S.boot && S.boot.env) || {};
   const tools = ((S.boot && S.boot.tools) || {})[$("rubric").value] || [];
   const rubric = S.rubric;
 
@@ -823,6 +843,20 @@ function renderSetupTab() {
       <div class="hint">The first usable link serves the run; the rest are the failover
         chain, walked inside the run if the primary dies. There is no simulated provider
         here — this application always talks to a real model.</div>
+    </div></div>
+
+    <div class="card"><header>Environment file</header><div class="body">
+      <dl class="kv">
+        <dt>path</dt><dd class="mono wrap">${esc(env.path || ".env")}</dd>
+        <dt>status</dt><dd><span class="chip ${env.exists && !env.error ? "ok" : "bad"}">${
+          env.error ? esc(env.error) : (env.exists ? "loaded" : "not found")}</span></dd>
+        <dt>keys found</dt><dd class="mono wrap">${esc((env.keys || []).join(", ") || "none")}</dd>
+        <dt>used from file</dt><dd class="mono wrap">${esc((env.filled || []).join(", ") || "none")}</dd>
+        <dt>shell overrides</dt><dd class="mono wrap">${esc((env.overridden || []).join(", ") || "none")}</dd>
+        <dt>blank in file</dt><dd class="mono wrap">${esc((env.blank || []).join(", ") || "none")}</dd>
+      </dl>
+      ${(env.notes || []).map((n) => `<div class="banner">${esc(n)}</div>`).join("")}
+      <div class="hint">Only variable names and load decisions are shown; secret values are never sent to the browser.</div>
     </div></div>
 
     ${rubric ? `<div class="card"><header>${esc(rubric.name)}

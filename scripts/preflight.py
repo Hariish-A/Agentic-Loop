@@ -18,9 +18,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from dotenv import load_dotenv  # noqa: E402
-
 from agentic_rubric.config import ConfigError, load_config  # noqa: E402
+from agentic_rubric.envfile import load_env_file  # noqa: E402
 from agentic_rubric.llm import (  # noqa: E402
     LLMError,
     available_chain,
@@ -40,7 +39,9 @@ def main() -> int:
     parser.add_argument("--provider", default=None, help="force a specific provider for --ping")
     args = parser.parse_args()
 
-    load_dotenv(ROOT / ".env")
+    env_report = load_env_file(ROOT / ".env")
+    for note in env_report.notes:
+        print(f"note: {note}")
 
     try:
         config = load_config(args.config, project_root=ROOT)

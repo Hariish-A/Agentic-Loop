@@ -11,8 +11,8 @@ CONFIG = "config/config.yaml"
 
 def test_loads_shipped_config() -> None:
     config = load_config(CONFIG)
-    assert config.llm.primary == "groq"
-    assert config.llm.chain == ["groq", "ollama"]
+    assert config.llm.primary == "gemini"
+    assert config.llm.chain == ["gemini", "groq", "ollama"]
     assert config.loop.max_iterations == 6
     assert config.guardrails.token_budget == 200_000
 
@@ -68,13 +68,14 @@ def test_unknown_key_fails_loudly() -> None:
 
 def test_unknown_provider_names_the_configured_ones() -> None:
     config = load_config(CONFIG)
-    with pytest.raises(ConfigError, match="configured: groq"):
+    with pytest.raises(ConfigError, match="configured: gemini"):
         config.llm.provider("nope")
 
 
 def test_provider_chain_deduplicates() -> None:
     config = load_config(CONFIG, overrides={"llm.fallbacks": ["ollama", "groq", "ollama"]})
-    assert config.llm.chain == ["groq", "ollama"]
+    # Duplicates drop, and first-seen order is what survives.
+    assert config.llm.chain == ["gemini", "ollama", "groq"]
 
 
 def test_api_key_reads_from_the_named_variable() -> None:

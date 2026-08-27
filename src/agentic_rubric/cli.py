@@ -31,10 +31,10 @@ import sys
 import typing as t
 from pathlib import Path
 
-from dotenv import load_dotenv
-
 from .config import AppConfig, ConfigError, load_config
 from .core.rubric import Rubric, RubricError
+from .core.state import RunStatus
+from .envfile import load_env_file
 from .harness.fallbacks import ProviderChain
 from .harness.faults import (
     FAILURE_KINDS,
@@ -332,7 +332,7 @@ def render_result(result: t.Any, args: argparse.Namespace) -> None:
 
 def main(argv: t.Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    load_dotenv(PROJECT_ROOT / ".env")
+    env_report = load_env_file(PROJECT_ROOT / ".env")
 
     overrides = parse_overrides(args.overrides)
     if args.provider:
@@ -364,6 +364,7 @@ def main(argv: t.Sequence[str] | None = None) -> int:
         return 3
 
     configure_logging(config.logging)
+    notes.extend(env_report.notes)
     notes.extend(simulation_notes)
 
     memory, memory_notes = build_memory(config, args)
@@ -406,6 +407,16 @@ def main(argv: t.Sequence[str] | None = None) -> int:
         return 4
     finally:
         runner.close()
+
+    # A refused submission is a verdict, not a run. Printing a transcript, a
+    # trace path and an empty scorecard under it would bury the one line the
+    # caller needs.
+    if report.result.status is RunStatus.INPUT_REJECTED:
+        for note in report.result.notes:
+            print(f"refused: {note}", file=sys.stderr)
+        if args.json:
+            print(json.dumps(report.result.to_dict(), indent=2, default=str))
+        return 2
 
     render_result(report.result, args)
     if report.trace_path and not args.quiet:

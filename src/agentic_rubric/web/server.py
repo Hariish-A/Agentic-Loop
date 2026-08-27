@@ -33,8 +33,11 @@ of minutes; a spinner for two minutes is not an interface.
 from __future__ import annotations
 
 import contextlib
+import errno
 import json
 import mimetypes
+import os
+import socket
 import threading
 import typing as t
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -44,6 +47,8 @@ from urllib.parse import parse_qs, urlparse
 from ..config import AppConfig, load_config
 from ..core.rubric import Rubric
 from ..core.state import Decision, MemoryHit, RunResult
+from ..envfile import ENV_FILENAME, EnvFileReport, load_env_file
+from ..envfile import summary as env_summary
 from ..harness.fallbacks import ProviderChain
 from ..harness.faults import FAILURE_KINDS, FAULT_STEPS, FaultyMemory, FaultyProvider
 from ..harness.runner import Runner
@@ -98,6 +103,35 @@ SAMPLES: dict[str, list[dict[str, str]]] = {
 #: One run at a time. Concurrent runs would interleave writes to the same
 #: SQLite file and make the memory panel unreadable.
 _LOCK = threading.Lock()
+
+#: Loaded once, at import, so the answer is the same however the server was
+#: started -- `python demo.py`, `python -m agentic_rubric.web.server`, or a
+#: WSGI-ish embedding that never calls our `main()`. The report is kept because
+#: "no key" has several quite different causes and the page has to name the
+#: right one.
+ENV_REPORT: EnvFileReport = load_env_file(PROJECT_ROOT / ENV_FILENAME)
+
+
+class ServerBindError(RuntimeError):
+    """The UI cannot bind because another process already owns the address."""
+
+
+class ExclusiveThreadingHTTPServer(ThreadingHTTPServer):
+    """HTTP server that never shares a listening address with a stale process.
+
+    ``ThreadingHTTPServer`` enables ``SO_REUSEADDR``.  On Windows that can let
+    two Python processes bind the same host/port, after which the browser may
+    reach either process.  ``SO_EXCLUSIVEADDRUSE`` makes ownership unambiguous.
+    Disabling reuse on every platform also makes an already-running demo fail
+    immediately instead of serving an arbitrary checkout.
+    """
+
+    allow_reuse_address = False
+
+    def server_bind(self) -> None:
+        if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
 
 # ---------------------------------------------------------------------------
@@ -304,7 +338,9 @@ def provider_payload(config: AppConfig) -> list[dict[str, t.Any]]:
                 "name": name,
                 "model": settings.model,
                 "available": ok,
-                "reason": reason,
+                # "environment variable GROQ_API_KEY is empty" is true and
+                # useless. Say which of the several causes actually applies.
+                "reason": reason if ok else ENV_REPORT.describes(settings.api_key_env),
                 "key_env": settings.api_key_env,
             }
         )
@@ -464,10 +500,13 @@ def build_chain(config: AppConfig, requested: str) -> tuple[LLMProvider, Provide
             links.append((name, lambda n=name: build_provider(config, n)))  # type: ignore[misc]
 
     if primary is None:
+        detail = "; ".join(
+            ENV_REPORT.describes(config.llm.providers[name].api_key_env)
+            for name in ordered
+            if name in config.llm.providers and name != "mock"
+        )
         raise ProviderUnavailableError(
-            "No live provider is usable. Set GROQ_API_KEY in .env (or run "
-            "`ollama serve` for the local fallback), then reload this page. "
-            + " ".join(notes)
+            "No live provider is usable. " + detail + " " + " ".join(notes)
         )
     if len(links) > 1:
         notes.append("failover chain: " + " -> ".join(name for name, _ in links))
@@ -746,6 +785,7 @@ class Handler(BaseHTTPRequestHandler):
                 "failures": list(FAILURE_KINDS),
                 "failure_steps": list(FAULT_STEPS),
                 "memory": memory,
+                "env": env_summary(ENV_REPORT),
                 "runs": recent_runs(config),
                 "defaults": {
                     "provider": next(
@@ -835,10 +875,28 @@ class Handler(BaseHTTPRequestHandler):
                 emit("error", {"message": f"{type(exc).__name__}: {exc}"})
 
 
-def serve(host: str = "127.0.0.1", port: int = 8000) -> None:
-    server = ThreadingHTTPServer((host, port), Handler)
-    print(f"Agentic Rubric Loop -> http://{host}:{port}")
+def serve(
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    *,
+    on_ready: t.Callable[[str], None] | None = None,
+) -> None:
+    url = f"http://{host}:{port}"
+    try:
+        server = ExclusiveThreadingHTTPServer((host, port), Handler)
+    except OSError as exc:
+        address_in_use = exc.errno == errno.EADDRINUSE or getattr(exc, "winerror", None) == 10048
+        if address_in_use:
+            raise ServerBindError(
+                f"cannot start {url}: port {port} is already in use. Stop the older "
+                f"demo process, or start this one with --port {port + 1}"
+            ) from exc
+        raise
+
+    print(f"Agentic Rubric Loop -> {url}")
     print("Press Ctrl+C to stop.")
+    if on_ready is not None:
+        on_ready(url)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -855,10 +913,14 @@ def main(argv: t.Sequence[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args(argv)
 
-    from dotenv import load_dotenv
-
-    load_dotenv(PROJECT_ROOT / ".env")
-    serve(args.host, args.port)
+    # .env was already loaded at import; report anything surprising about it.
+    for note in ENV_REPORT.notes:
+        print(f"note: {note}")
+    try:
+        serve(args.host, args.port)
+    except ServerBindError as exc:
+        print(f"error: {exc}")
+        return 2
     return 0
 
 
@@ -871,6 +933,8 @@ __all__ = [
     "DraftRecorder",
     "Handler",
     "RecallSpy",
+    "ExclusiveThreadingHTTPServer",
+    "ServerBindError",
     "build_chain",
     "main",
     "run_loop_streaming",

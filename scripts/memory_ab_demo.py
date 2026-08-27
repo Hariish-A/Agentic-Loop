@@ -29,12 +29,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from dotenv import load_dotenv  # noqa: E402
-
 from agentic_rubric.config import load_config  # noqa: E402
 from agentic_rubric.core.loop import AgenticLoop  # noqa: E402
 from agentic_rubric.core.rubric import Rubric  # noqa: E402
 from agentic_rubric.core.state import RunResult  # noqa: E402
+from agentic_rubric.envfile import load_env_file  # noqa: E402
 from agentic_rubric.llm.demo_responder import ScriptedAgentResponder  # noqa: E402
 from agentic_rubric.llm.factory import build_provider  # noqa: E402
 from agentic_rubric.llm.mock import MockProvider  # noqa: E402
@@ -108,7 +107,9 @@ def main() -> int:
     parser.add_argument("--keep-db", action="store_true", help="do not delete the demo database")
     args = parser.parse_args()
 
-    load_dotenv(ROOT / ".env")
+    env_report = load_env_file(ROOT / ".env")
+    for note in env_report.notes:
+        print(f"note: {note}")
     config = load_config(
         ROOT / "config" / "config.yaml",
         overrides={"memory.db_path": DB_PATH},

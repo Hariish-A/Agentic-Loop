@@ -21,6 +21,13 @@ scale:
 # Optional per-rubric default; the CLI --target flag overrides it.
 target_score: 85.0
 
+# Admission floor, checked before any model call. An essay rubric grades a
+# sustained argument; below this there is nothing for the criteria to measure,
+# so the submission is refused rather than scored 0% and "improved" into
+# something the author never wrote.
+min_words: 60
+min_sentences: 3
+
 criteria:
   - id: thesis
     name: Thesis and Position

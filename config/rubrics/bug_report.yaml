@@ -18,6 +18,11 @@ scale:
   max: 5
 target_score: 85.0
 
+# Admission floor. Lower than the essay rubric: a terse but complete bug report
+# is legitimate, an essay of the same length is not.
+min_words: 30
+min_sentences: 2
+
 criteria:
   - id: reproducibility
     name: Reproduction Steps

@@ -133,6 +133,11 @@ class Rubric:
     domain: str = ""
     description: str = ""
     target_score: float | None = None
+    #: Admission thresholds. "Long enough to grade" is a property of the rubric,
+    #: not of the agent: an essay needs paragraphs, a bug report can be shorter.
+    #: ``None`` defers to ``loop.min_input_words`` / ``loop.min_input_sentences``.
+    min_words: int | None = None
+    min_sentences: int | None = None
     source_path: str = ""
 
     def __post_init__(self) -> None:
@@ -223,6 +228,8 @@ class Rubric:
             raise RubricError(f"malformed rubric{where}: {exc}") from exc
 
         target = data.get("target_score")
+        min_words = data.get("min_words")
+        min_sentences = data.get("min_sentences")
         return cls(
             id=str(data.get("id", "rubric")),
             name=str(data.get("name", data.get("id", "Rubric"))),
@@ -231,6 +238,8 @@ class Rubric:
             domain=str(data.get("domain", "")),
             description=str(data.get("description", "")),
             target_score=float(target) if target is not None else None,
+            min_words=int(min_words) if min_words is not None else None,
+            min_sentences=int(min_sentences) if min_sentences is not None else None,
             source_path=source_path,
         )
 

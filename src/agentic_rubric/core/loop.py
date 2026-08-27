@@ -47,6 +47,7 @@ from ..memory.base import MemoryRecord, MemoryStore, NullMemory
 from ..tools.definitions import build_registry
 from ..tools.registry import ToolContext, ToolRegistry
 from .act import act
+from .admission import AdmissionVerdict, check_admission
 from .perceive import perceive
 from .reason import reason
 from .reflect import reflect
@@ -212,6 +213,13 @@ class AgenticLoop:
         if not draft.strip():
             raise ValueError("cannot improve an empty draft")
 
+        # The admission gate. Deterministic, no model call, once per run: a
+        # submission this rubric cannot grade must cost nothing rather than be
+        # scored at 0% and then "improved" into something the user never wrote.
+        verdict = check_admission(draft, self.rubric, self.config)
+        if not verdict.ok:
+            return self._rejected(draft, verdict, session_id, target_score)
+
         target = target_score if target_score is not None else (
             self.rubric.target_score
             if self.rubric.target_score is not None
@@ -363,6 +371,50 @@ class AgenticLoop:
         return run_result
 
     # -- output -------------------------------------------------------------
+
+    def _rejected(
+        self,
+        draft: str,
+        verdict: AdmissionVerdict,
+        session_id: str | None,
+        target_score: float | None,
+    ) -> RunResult:
+        """Return a refused submission as a normal terminal result.
+
+        A rejection is a verdict, not an exception: it carries a run id, a
+        reason a person can act on, and the user's text handed back **exactly as
+        submitted**. Nothing was scored and nothing was rewritten, so
+        ``best_draft`` is the input -- which is the honest answer to "what is
+        the best version of this text you produced".
+        """
+        run_id = new_id("run")
+        session = session_id or new_id("sess")
+        target = target_score if target_score is not None else self.config.loop.target_score
+
+        self._emit(
+            "input_rejected",
+            run_id=run_id,
+            session_id=session,
+            rubric_id=self.rubric.id,
+            reason=verdict.reason,
+            checks=[c.render() for c in verdict.checks],
+            measurements=verdict.measurements,
+        )
+        return RunResult(
+            run_id=run_id,
+            session_id=session,
+            status=RunStatus.INPUT_REJECTED,
+            rubric_id=self.rubric.id,
+            iterations=0,
+            initial_draft=draft,
+            final_draft=draft,
+            best_draft=draft,
+            initial_score=None,
+            final_score=None,
+            best_score=None,
+            target_score=target,
+            notes=[verdict.reason, *(c.render() for c in verdict.failures)],
+        )
 
     def _build_result(self, state: LoopState, usage: Usage, elapsed: float) -> RunResult:
         history = state.workspace.scorecard_history

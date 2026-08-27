@@ -27,11 +27,21 @@ from ..registry import ToolContext, ToolError, ToolOutput
 from ..text_stats import unified_diff_summary, words
 from .scoring import judge
 
-#: Below this similarity to the previous draft, treat the output as a
-#: replacement rather than a revision.
+#: Below this fraction of the original word count, the output is a summary.
 MIN_RETAINED_WORD_RATIO = 0.35
 #: Above this similarity, nothing meaningful changed.
 NO_CHANGE_SIMILARITY = 0.995
+#: Above this multiple of the original word count, the output is a composition
+#: rather than a revision. The bound that matters: a live run turned a
+#: three-word greeting into 170 words -- a 56x expansion -- and reported it as
+#: an improvement. Growth is still allowed, just one bounded step per iteration,
+#: because each iteration re-baselines against the draft it starts from.
+MAX_EXPANSION_RATIO = 3.0
+#: Fraction of the original's distinct words that must survive into the
+#: revision. Only applied above :data:`RETENTION_FLOOR_MIN_WORDS`, because on a
+#: very short original the denominator is too small to mean anything.
+MIN_WORD_RETENTION = 0.25
+RETENTION_FLOOR_MIN_WORDS = 25
 #: Temperature spread used when generating multiple candidates. A single
 #: candidate runs at the first value.
 CANDIDATE_TEMPERATURES = (0.4, 0.7, 0.9, 1.0)
@@ -67,17 +77,54 @@ def _generate(
     return revise_prompt.clean_output(response.text)
 
 
+def word_retention(original: str, candidate: str) -> float:
+    """Fraction of the original's distinct words that survive the revision.
+
+    Case-insensitive set overlap rather than sequence similarity, because
+    ``difflib`` compares *lines*: a legitimate paragraph-level rewrite and a
+    fabricated-from-nothing draft both score near zero there, so line
+    similarity cannot tell them apart. Vocabulary survival can -- a real
+    revision keeps the subject matter even when every sentence is rewritten.
+    """
+    before = {word.lower() for word in words(original)}
+    if not before:
+        return 0.0
+    after = {word.lower() for word in words(candidate)}
+    return len(before & after) / len(before)
+
+
 def _validate_candidate(original: str, candidate: str) -> str | None:
-    """Return a rejection reason, or ``None`` if the candidate is usable."""
+    """Return a rejection reason, or ``None`` if the candidate is usable.
+
+    The guards are deliberately **symmetric**. Before, only shrinkage and
+    no-change were caught, so a reviser that replaced the draft with something
+    far longer and entirely unrelated passed every check -- which is exactly
+    what happened on a live run against a three-word input.
+    """
     if not candidate.strip():
         return "the reviser returned an empty draft"
 
     original_words = len(words(original))
     candidate_words = len(words(candidate))
+
     if original_words and candidate_words / original_words < MIN_RETAINED_WORD_RATIO:
         return (
             f"the reviser returned {candidate_words} words against an original of "
             f"{original_words}; that is a summary, not a revision"
+        )
+
+    if original_words and candidate_words / original_words > MAX_EXPANSION_RATIO:
+        return (
+            f"the reviser returned {candidate_words} words against an original of "
+            f"{original_words} ({candidate_words / original_words:.1f}x); that is a "
+            "composition, not a revision"
+        )
+
+    retention = word_retention(original, candidate)
+    if original_words >= RETENTION_FLOOR_MIN_WORDS and retention < MIN_WORD_RETENTION:
+        return (
+            f"only {retention:.0%} of the original wording survives; the reviser "
+            "replaced the draft rather than improving it"
         )
 
     similarity = unified_diff_summary(original, candidate).get("similarity")
