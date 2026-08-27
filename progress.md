@@ -11,8 +11,8 @@ If a session ends abruptly, read **▶ Resume here** at the top, diff it against
 |---|---|
 | **Last completed** | Milestone 4 — submission pass (M4-1 … M4-5, M4-7). CI, types, coverage, docs. |
 | **Next task** | **M4-5 (you)** — write `docs/solution.md`. The brief forbids an AI-written solution PDF, so the prose is yours; `docs/solution_evidence.md` holds every verified number so you are not re-deriving them. Render with `python scripts/make_pdf.py docs/solution.md`. |
-| **Then** | **M4-4** record the video from `docs/04_demo_script.md` · **M4-6** push to the private remote and add the reviewer accounts |
-| **Blocked on** | Nothing technical. **Not pushed yet** — `gh` is not installed here, so the remote's visibility could not be verified, and the brief disqualifies a public repository. Confirm `github.com/Hariish-A/Agentic-Loop` is private, then `git push -u origin main --follow-tags`. |
+| **Then** | **M4-4** record the video from `docs/04_demo_script.md` · **M4-6** add the reviewer accounts as collaborators |
+| **Blocked on** | Nothing. **Pushed** to `Hariish-A/Agentic-Loop` — `main` at `92f2c4c` plus tags `milestone-1/2/3` — after the owner confirmed the repository is private. This is the first push carrying `.github/workflows/ci.yml`, so **check the Actions tab**: the `docker` job is the first real image build this project has had. |
 | **Known gap** | Docker has still never been built locally (engine down). `docker compose config` validates and the CI `docker` job builds and runs it, but no image has been produced on this machine. |
 
 **Verify the checkout is healthy before continuing:**
@@ -144,10 +144,10 @@ control (no mem)   6 iters  target_reached  96.2%  score -> analyze -> revise ->
 
 - **The solution PDF is yours to write.** `docs/solution_evidence.md`, then `scripts/make_pdf.py`.
 - **The demo video is unrecorded.** `docs/04_demo_script.md` is the script.
-- **Nothing has been pushed.** `gh` is not installed here, so the remote's visibility could not be
-  checked, and a public repository is disqualifying. Confirm private, then push with
-  `--follow-tags`, then add the reviewer accounts as collaborators.
-- **Docker has never been built on this machine.** The CI `docker` job will be the first real build.
+- **Reviewer accounts are not yet collaborators.** The push landed; the access grant has not been
+  made. This is the one submission step that is easy to forget and fatal to miss.
+- **Docker has never been built on this machine.** The CI `docker` job on this push is the first
+  real build; if it fails, the Dockerfile is where to look, not the application.
 - **`web/server.py` is at 60% coverage** and still calls `AgenticLoop` directly rather than the
   `Runner`, so the browser demo displays no harness events. Switching it is a small change and would
   make the demo strictly better.

@@ -145,7 +145,7 @@ Every task has a stable ID (`P0-3`, `M2-5`, …) so progress entries can referen
 - [x] **M4-3** `.github/workflows/ci.yml` — lint + tests on push (mock provider, so CI needs no secrets)
 - [x] **M4-4** Demo video script: `docs/04_demo_script.md` — shot-by-shot, timed to 4:15 of 5:00. *Script written; **the recording is still to do**.*
 - [~] **M4-5** `docs/solution.md` → **Solution PDF** (4–8 pages). *The brief forbids an AI-written solution PDF, so the prose is the author's. Delivered instead: `docs/solution_evidence.md` (every verified number and reference, no drafted prose) and `scripts/make_pdf.py` (renders it print-ready, warns outside 4–8 pages).*
-- [ ] **M4-6** Push to **private** GitHub repo, add reviewer accounts as collaborators. *Remote is configured (`Hariish-A/Agentic-Loop`) but **nothing has been pushed**: `gh` is unavailable locally, so privacy could not be verified, and a public repo is disqualifying.*
+- [~] **M4-6** Push to **private** GitHub repo, add reviewer accounts as collaborators. *Pushed to `Hariish-A/Agentic-Loop` (main + tags `milestone-1/2/3`) after the owner confirmed the repository is private. **Reviewer accounts still need adding as collaborators.***
 - [x] **M4-7** Final check against the submission checklist
 
 ---
