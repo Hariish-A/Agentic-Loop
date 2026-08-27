@@ -1,0 +1,10 @@
+Subject: export is slow
+
+The CSV export takes forever now. It used to be fine but recently it has gotten
+really slow, especially for bigger accounts. Sometimes it times out completely
+and you just get a blank page.
+
+I think something changed in the last release. Maybe the database query is bad?
+Someone should look at it.
+
+This is affecting our team a lot.

@@ -76,6 +76,12 @@ class ScriptedAgentResponder:
     needs_scoring: bool = True
     revisions: int = 0
     explored: bool = False
+    #: True between the first reviser call of a revise_text tool invocation and
+    #: the next Reason turn. The shallow Tree-of-Thoughts branch generates N
+    #: candidates and then judges each one, and those judge calls must not be
+    #: mistaken for the loop scoring the actual draft -- otherwise the simulated
+    #: agent believes an unscored workspace has a score and tries to finalize it.
+    revising: bool = False
     steps_seen: list[str] = field(default_factory=list)
     lessons_emitted: list[str] = field(default_factory=list)
     lessons_applied: list[str] = field(default_factory=list)
@@ -169,8 +175,11 @@ class ScriptedAgentResponder:
 
     def _judge(self) -> MockTurn:
         rounded = self._rounded()
-        self.needs_scoring = False
-        self.last_percent = self._percent()
+        if not self.revising:
+            # Only the loop's own scoring call updates what the agent believes.
+            # Candidate evaluations inside revise_text are read-only.
+            self.needs_scoring = False
+            self.last_percent = self._percent()
         return MockTurn(
             tool_calls=(
                 tool_call(
@@ -194,6 +203,9 @@ class ScriptedAgentResponder:
         )
 
     def _reason(self, call: MockCall) -> MockTurn:
+        # A new Reason turn means the previous revise_text tool call has
+        # finished, candidates and all.
+        self.revising = False
         if self.needs_scoring or self.last_percent is None:
             return MockTurn(
                 tool_calls=(
@@ -278,7 +290,12 @@ class ScriptedAgentResponder:
         match = _TEXT_BLOCK.search(source)
         current = match.group(1).strip() if match else source
         focus = self.pending_focus or self._headroom_ranked()[:1]
-        self._apply_revision(focus)
+
+        # The quality gain belongs to the tool call, not to each candidate the
+        # tool happens to generate, so it is applied exactly once per batch.
+        if not self.revising:
+            self._apply_revision(focus)
+            self.revising = True
 
         labels = ", ".join(self.rubric.criterion(c).name for c in focus)
         # Appending keeps the edit visible to diff_drafts and keeps the word

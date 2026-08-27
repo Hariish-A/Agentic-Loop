@@ -1,0 +1,728 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentic Rubric Loop - Milestone 1 &amp; 2 demo</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --ink: #16191d;
+    --muted: #667085;
+    --line: #dfe3e8;
+    --accent: #2563eb;
+    --ok: #15803d;
+    --warn: #b45309;
+    --bad: #b91c1c;
+    --mem: #7c3aed;
+    --code: #f1f3f5;
+    --radius: 6px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a; --panel: #1b1f24; --ink: #e6e8eb; --muted: #98a2b3;
+      --line: #2c333b; --accent: #60a5fa; --ok: #4ade80; --warn: #fbbf24;
+      --bad: #f87171; --mem: #c4b5fd; --code: #22272e;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  }
+  code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; }
+
+  header {
+    background: var(--panel); border-bottom: 1px solid var(--line);
+    padding: 14px 20px; display: flex; align-items: center; gap: 14px;
+    position: sticky; top: 0; z-index: 10;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 650; }
+  header .sub { color: var(--muted); font-size: 12.5px; }
+  header .spacer { flex: 1; }
+
+  .pill {
+    display: inline-block; padding: 2px 9px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 600; border: 1px solid var(--line);
+    background: var(--code); color: var(--muted); white-space: nowrap;
+  }
+  .pill.ok   { color: var(--ok);   border-color: currentColor; }
+  .pill.bad  { color: var(--bad);  border-color: currentColor; }
+  .pill.warn { color: var(--warn); border-color: currentColor; }
+  .pill.mem  { color: var(--mem);  border-color: currentColor; }
+  .pill.run  { color: var(--accent); border-color: currentColor; }
+
+  .layout { display: grid; grid-template-columns: 330px 1fr; gap: 16px; padding: 16px; align-items: start; }
+  @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); margin-bottom: 14px;
+  }
+  .card > h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--muted); margin: 0; padding: 10px 14px; border-bottom: 1px solid var(--line);
+    font-weight: 650;
+  }
+  .card > .body { padding: 14px; }
+  aside { position: sticky; top: 62px; }
+
+  label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin: 12px 0 4px; }
+  label:first-child { margin-top: 0; }
+  select, input[type=text], input[type=number], textarea {
+    width: 100%; padding: 7px 9px; font: inherit; color: var(--ink);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 5px;
+  }
+  textarea { min-height: 150px; resize: vertical; font-size: 13px; }
+  select:focus, input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; min-width: 0; }
+  .check { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+  .check input { width: auto; }
+  .check label { margin: 0; }
+  .hint { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+
+  button {
+    font: inherit; font-weight: 600; padding: 8px 12px; border-radius: 5px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .actions { display: flex; gap: 8px; margin-top: 16px; }
+  .actions .primary { flex: 2; }
+  .actions .ghost { flex: 1; }
+
+  /* rubric summary */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; font-weight: 650; }
+  tr:last-child td { border-bottom: 0; }
+  td.num, th.num { text-align: right; white-space: nowrap; }
+
+  /* transcript */
+  .iter { border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 12px; overflow: hidden; }
+  .iter > .head {
+    background: var(--code); padding: 7px 12px; font-size: 12.5px; font-weight: 650;
+    display: flex; gap: 10px; align-items: center; border-bottom: 1px solid var(--line);
+  }
+  .step { display: grid; grid-template-columns: 84px 1fr; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  .step:last-child { border-bottom: 0; }
+  .step > .tag {
+    font-size: 10.5px; font-weight: 700; letter-spacing: .06em; color: var(--muted);
+    padding-top: 2px;
+  }
+  .step.perceive > .tag { color: var(--muted); }
+  .step.reason   > .tag { color: var(--accent); }
+  .step.act      > .tag { color: var(--ok); }
+  .step.act.fail > .tag { color: var(--bad); }
+  .step.reflect  > .tag { color: var(--warn); }
+  .step .line { margin-bottom: 3px; }
+  .step .thought { font-style: italic; color: var(--ink); opacity: .9; }
+  .step .meta { font-size: 12px; color: var(--muted); }
+
+  .bar { display: inline-block; vertical-align: middle; letter-spacing: -1px; font-size: 12px; }
+  .bar .fill { color: var(--accent); }
+  .bar .rest { color: var(--line); }
+  .bar .mark { color: var(--bad); font-weight: 700; }
+
+  .recalled {
+    border-left: 3px solid var(--mem); background: color-mix(in srgb, var(--mem) 7%, transparent);
+    padding: 6px 10px; margin: 5px 0; border-radius: 0 4px 4px 0; font-size: 12.5px;
+  }
+  .recalled .k { color: var(--mem); font-weight: 700; font-size: 11px; text-transform: uppercase; }
+  .lesson {
+    border-left: 3px solid var(--warn); background: color-mix(in srgb, var(--warn) 8%, transparent);
+    padding: 6px 10px; margin: 5px 0; border-radius: 0 4px 4px 0; font-size: 12.5px;
+  }
+  .lesson .k { color: var(--warn); font-weight: 700; font-size: 11px; text-transform: uppercase; }
+
+  pre.args {
+    background: var(--code); padding: 7px 9px; border-radius: 4px; font-size: 12px;
+    overflow-x: auto; margin: 4px 0 0; white-space: pre-wrap; word-break: break-word;
+  }
+  .banner { padding: 8px 12px; border-radius: 5px; margin-bottom: 10px; font-size: 13px; border: 1px solid; }
+  .banner.note { border-color: var(--line); background: var(--code); color: var(--muted); }
+  .banner.err  { border-color: var(--bad); color: var(--bad); background: color-mix(in srgb, var(--bad) 8%, transparent); }
+
+  .tabs { display: flex; gap: 4px; padding: 8px 12px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .tabs button {
+    border: 1px solid transparent; border-bottom: none; border-radius: 5px 5px 0 0;
+    padding: 6px 12px; font-size: 12.5px; background: transparent; color: var(--muted);
+  }
+  .tabs button.on { background: var(--panel); border-color: var(--line); color: var(--ink); margin-bottom: -1px; }
+  .tabpane { display: none; padding: 14px; }
+  .tabpane.on { display: block; }
+
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; font-size: 13px; }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; }
+
+  .drafts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 860px) { .drafts { grid-template-columns: 1fr; } }
+  .draft { border: 1px solid var(--line); border-radius: 5px; }
+  .draft h3 { margin: 0; font-size: 12px; padding: 7px 10px; background: var(--code); border-bottom: 1px solid var(--line); color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .draft .txt { padding: 10px; white-space: pre-wrap; font-size: 13px; max-height: 340px; overflow-y: auto; }
+
+  .empty { color: var(--muted); font-size: 13px; padding: 24px; text-align: center; }
+  .spin { display: inline-block; animation: sp 1s linear infinite; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Agentic Rubric Loop</h1>
+  <span class="sub">Perceive &rarr; Reason &rarr; Act &rarr; Reflect &nbsp;&middot;&nbsp; Milestone 1 &amp; 2 demo</span>
+  <span class="spacer"></span>
+  <span id="status" class="pill">idle</span>
+</header>
+
+<div class="layout">
+
+  <!-- ================= SIDEBAR ================= -->
+  <aside>
+    <div class="card">
+      <h2>Input</h2>
+      <div class="body">
+        <label for="rubric">Rubric (data, not code)</label>
+        <select id="rubric"></select>
+
+        <label for="sample">Sample text</label>
+        <select id="sample"></select>
+
+        <label for="text">Text to improve</label>
+        <textarea id="text" spellcheck="false" placeholder="Pick a sample above, or paste your own text here."></textarea>
+        <div class="hint" id="wordcount">0 words</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Loop settings</h2>
+      <div class="body">
+        <label for="provider">Provider</label>
+        <select id="provider"></select>
+        <div class="hint" id="providerhint"></div>
+
+        <div class="row">
+          <div>
+            <label for="target">Target score %</label>
+            <input type="number" id="target" min="10" max="100" step="1" value="85">
+          </div>
+          <div>
+            <label for="iters">Max iterations</label>
+            <input type="number" id="iters" min="1" max="12" step="1" value="6">
+          </div>
+        </div>
+
+        <label for="candidates">Revision candidates (shallow Tree&nbsp;of&nbsp;Thoughts)</label>
+        <select id="candidates">
+          <option value="1">1 &mdash; single revision (default)</option>
+          <option value="2">2 &mdash; generate 2, judge, keep best</option>
+          <option value="3">3 &mdash; generate 3, judge, keep best</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Memory (Milestone 2)</h2>
+      <div class="body">
+        <div class="check">
+          <input type="checkbox" id="memon" checked>
+          <label for="memon">Memory enabled</label>
+        </div>
+        <div class="hint">Uncheck for the A/B control run.</div>
+
+        <label for="session">Session id</label>
+        <input type="text" id="session" value="web-demo">
+        <div class="hint">Lessons cross sessions; episodes do not. Change this to prove it.</div>
+
+        <div class="actions">
+          <button class="ghost" id="clearsession" type="button">Clear session</button>
+          <button class="ghost" id="clearall" type="button">Wipe memory</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Failure injection</h2>
+      <div class="body">
+        <label for="failure">Inject a failure</label>
+        <select id="failure">
+          <option value="">none</option>
+        </select>
+        <label for="failstep">Into step</label>
+        <select id="failstep"></select>
+        <div class="hint">Mock provider only. Shows the loop recovering instead of crashing.</div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="primary" id="run" type="button">Run loop</button>
+      <button class="ghost" id="reset" type="button">Clear</button>
+    </div>
+  </aside>
+
+  <!-- ================= MAIN ================= -->
+  <main>
+    <div class="card">
+      <h2>Rubric</h2>
+      <div class="body" id="rubriccard"></div>
+    </div>
+
+    <div class="card">
+      <h2>Live transcript</h2>
+      <div class="body" id="transcript">
+        <div class="empty">Pick a sample and press <strong>Run loop</strong>.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Results</h2>
+      <div class="tabs" id="tabs">
+        <button data-tab="summary" class="on">Summary</button>
+        <button data-tab="scores">Scorecards</button>
+        <button data-tab="drafts">Before / after</button>
+        <button data-tab="memory">Memory</button>
+      </div>
+      <div class="tabpane on" id="tab-summary"><div class="empty">No run yet.</div></div>
+      <div class="tabpane" id="tab-scores"><div class="empty">No run yet.</div></div>
+      <div class="tabpane" id="tab-drafts"><div class="empty">No run yet.</div></div>
+      <div class="tabpane" id="tab-memory"><div class="empty">No run yet.</div></div>
+    </div>
+  </main>
+</div>
+
+<script>
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s)
+  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+let BOOT = null;
+let TARGET = 85;
+let running = false;
+
+/* ------------------------------------------------------------------ */
+/* bootstrap                                                           */
+/* ------------------------------------------------------------------ */
+
+async function bootstrap() {
+  const res = await fetch("/api/bootstrap");
+  BOOT = await res.json();
+
+  const rub = $("rubric");
+  rub.innerHTML = BOOT.rubrics.map(r =>
+    `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join("");
+
+  const prov = $("provider");
+  prov.innerHTML = BOOT.providers.map(p =>
+    `<option value="${esc(p.name)}" ${p.available ? "" : "disabled"}>${esc(p.name)} - ${esc(p.model)}${p.available ? "" : "  (unavailable)"}</option>`
+  ).join("");
+
+  $("failure").innerHTML = `<option value="">none</option>` +
+    BOOT.failures.map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join("");
+  $("failstep").innerHTML = BOOT.failure_steps
+    .map(s => `<option value="${esc(s)}" ${s === "judge" ? "selected" : ""}>${esc(s)}</option>`).join("");
+
+  $("target").value = BOOT.defaults.target_score;
+  $("iters").value = BOOT.defaults.max_iterations;
+  $("candidates").value = String(BOOT.defaults.revise_candidates);
+  $("memon").checked = !!BOOT.defaults.memory_enabled;
+
+  onRubricChange();
+  onProviderChange();
+  refreshMemoryTab();
+}
+
+function currentRubric() {
+  return BOOT.rubrics.find(r => r.id === $("rubric").value) || BOOT.rubrics[0];
+}
+
+function onRubricChange() {
+  const r = currentRubric();
+  const samples = (BOOT.samples[r.id] || []);
+  $("sample").innerHTML = `<option value="">-- type your own --</option>` +
+    samples.map((s, i) => `<option value="${i}">${esc(s.label)}</option>`).join("");
+  if (samples.length) { $("sample").value = "0"; $("text").value = samples[0].text; }
+  if (r.target_score) { $("target").value = r.target_score; }
+  renderRubricCard(r);
+  updateWords();
+}
+
+function onProviderChange() {
+  const p = BOOT.providers.find(x => x.name === $("provider").value);
+  $("providerhint").textContent = p ? p.reason : "";
+  const mock = $("provider").value === "mock";
+  $("failure").disabled = !mock;
+  $("failstep").disabled = !mock;
+}
+
+function renderRubricCard(r) {
+  const rows = r.criteria.map(c => `
+    <tr>
+      <td><strong>${esc(c.name)}</strong><br><span class="meta" style="color:var(--muted);font-size:12px">${esc(c.description)}</span></td>
+      <td class="num">${(c.weight * 100).toFixed(0)}%</td>
+      <td class="num">${c.probes.length}</td>
+    </tr>`).join("");
+  $("rubriccard").innerHTML = `
+    <div style="margin-bottom:10px;color:var(--muted);font-size:13px">
+      ${esc(r.description)} Scored ${r.scale.min}&ndash;${r.scale.max} per criterion, normalised to a weighted percentage.
+    </div>
+    <table>
+      <thead><tr><th>Criterion</th><th class="num">Weight</th><th class="num">Probes</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="hint" style="margin-top:8px">
+      Tool schemas are generated from this rubric, so the agent literally cannot target a criterion that does not exist.
+      "Probes" are deterministic regex checks run without an LLM.
+    </div>`;
+}
+
+function updateWords() {
+  const n = ($("text").value.trim().match(/\S+/g) || []).length;
+  $("wordcount").textContent = n + " words";
+}
+
+/* ------------------------------------------------------------------ */
+/* rendering helpers                                                   */
+/* ------------------------------------------------------------------ */
+
+function bar(pct, target, width = 30) {
+  if (pct == null) return `<span class="bar mono"><span class="rest">${"·".repeat(width)}</span></span> <span style="color:var(--muted)">unscored</span>`;
+  const fill = Math.round(width * Math.max(0, Math.min(100, pct)) / 100);
+  const mark = Math.round(width * Math.max(0, Math.min(100, target)) / 100);
+  let out = "";
+  for (let i = 0; i < width; i++) {
+    if (i === mark) out += `<span class="mark">|</span>`;
+    else if (i < fill) out += `<span class="fill">█</span>`;
+    else out += `<span class="rest">─</span>`;
+  }
+  return `<span class="bar mono">${out}</span> <strong>${pct.toFixed(1)}%</strong>`;
+}
+
+function setStatus(text, cls) {
+  const el = $("status");
+  el.className = "pill " + (cls || "");
+  el.innerHTML = text;
+}
+
+function banner(kind, message) {
+  const div = document.createElement("div");
+  div.className = "banner " + kind;
+  div.innerHTML = esc(message);
+  $("transcript").appendChild(div);
+}
+
+function iterCard(n) {
+  const div = document.createElement("div");
+  div.className = "iter";
+  div.id = "iter-" + n;
+  div.innerHTML = `<div class="head"><span>Iteration ${n}</span><span class="spacer" style="flex:1"></span><span class="pill run" id="iterscore-${n}">running</span></div>`;
+  $("transcript").appendChild(div);
+  div.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  return div;
+}
+
+function step(n, tag, cls, html) {
+  const host = $("iter-" + n);
+  if (!host) return;
+  const div = document.createElement("div");
+  div.className = "step " + cls;
+  div.innerHTML = `<div class="tag">${tag}</div><div>${html}</div>`;
+  host.appendChild(div);
+}
+
+/* ------------------------------------------------------------------ */
+/* event handlers                                                      */
+/* ------------------------------------------------------------------ */
+
+const handlers = {
+  run_start(d) {
+    TARGET = d.target_score;
+    $("transcript").innerHTML = "";
+    banner("note",
+      `run ${d.run_id} · session ${d.session_id} · rubric ${d.rubric_id} · provider ${d.provider} · memory ${d.memory} · target ${d.target_score}% · cap ${d.max_iterations}`);
+    setStatus('<span class="spin">◐</span> running', "run");
+  },
+
+  note(d) { banner("note", d.message); },
+  error(d) { banner("err", d.message); setStatus("error", "bad"); },
+
+  iteration_start(d) { iterCard(d.iteration); },
+
+  perceive(d) {
+    let html = `<div class="line">${bar(d.score, TARGET)}</div>`;
+    html += `<div class="meta">words ${d.words} · flesch ${d.flesch} · failing probes ${(d.failing_probes || []).length}`;
+    if ((d.failing_probes || []).length) html += ` (${esc(d.failing_probes.join(", "))})`;
+    html += ` · recalled ${d.recalled}</div>`;
+    for (const note of (d.notes || [])) html += `<div class="meta">⚠ ${esc(note)}</div>`;
+    for (const hit of (d.recalled_items || [])) {
+      html += `<div class="recalled"><span class="k">${esc(hit.kind)}</span>
+        <span class="meta">· relevance ${Number(hit.score).toFixed(2)} · from session ${esc(hit.session_id || "*")}, iter ${hit.iteration}</span>
+        <div>${esc(hit.content)}</div></div>`;
+    }
+    step(d.iteration, "PERCEIVE", "perceive", html);
+  },
+
+  reason(d) {
+    let html = `<div class="line"><strong>${esc(d.action)}</strong>`;
+    if (d.degraded) html += ` <span class="pill bad">degraded fallback</span>`;
+    html += ` <span class="meta">· ${d.tokens} tokens</span></div>`;
+    if (d.thought) html += `<div class="thought">"${esc(d.thought)}"</div>`;
+    const args = d.arguments || {};
+    if (Object.keys(args).length) {
+      html += `<pre class="args">${esc(JSON.stringify(args, null, 2))}</pre>`;
+    }
+    step(d.iteration, "REASON", "reason", html);
+  },
+
+  act(d) {
+    const ok = d.ok;
+    let html = `<div class="line"><strong>${esc(d.action)}</strong> `;
+    html += ok ? `<span class="pill ok">ok</span>` : `<span class="pill bad">failed</span>`;
+    html += ` <span class="meta">· ${Math.round(d.duration_ms)} ms · ${d.tokens} tokens</span></div>`;
+    html += `<div>${esc(ok ? d.summary : d.error)}</div>`;
+    step(d.iteration, "ACT", "act" + (ok ? "" : " fail"), html);
+  },
+
+  reflect(d) {
+    let html = `<div class="line">`;
+    html += d.task_complete ? `<span class="pill ok">complete</span>` : `<span class="pill">continue</span>`;
+    if (d.score_delta != null) {
+      const cls = d.score_delta > 0 ? "ok" : "warn";
+      html += ` <span class="pill ${cls}">${d.score_delta > 0 ? "+" : ""}${Number(d.score_delta).toFixed(1)} pts</span>`;
+    }
+    if (d.plateau) html += ` <span class="pill warn">plateau</span>`;
+    if (d.degraded) html += ` <span class="pill warn">rule-based</span>`;
+    html += `</div>`;
+    if (d.critique) html += `<div class="meta">${esc(d.critique)}</div>`;
+    if (d.reason) html += `<div class="meta">${esc(d.reason)}</div>`;
+    if (d.lesson) html += `<div class="lesson"><span class="k">lesson stored</span><div>${esc(d.lesson)}</div></div>`;
+    if (d.next_focus) html += `<div class="meta">next focus: <strong>${esc(d.next_focus)}</strong></div>`;
+    step(d.iteration, "REFLECT", "reflect", html);
+  },
+
+  iteration_end(d) {
+    const el = $("iterscore-" + d.iteration);
+    if (!el) return;
+    if (d.score == null) { el.className = "pill"; el.textContent = "unscored"; }
+    else {
+      el.className = "pill " + (d.score >= TARGET ? "ok" : "");
+      el.textContent = d.score.toFixed(1) + "%";
+    }
+  },
+
+  guardrail(d) { banner("note", "guardrail: " + (d.reason || JSON.stringify(d))); },
+
+  complete(d) { renderResults(d); }
+};
+
+/* ------------------------------------------------------------------ */
+/* results                                                             */
+/* ------------------------------------------------------------------ */
+
+function renderResults(d) {
+  const good = d.status === "target_reached" || d.status === "agent_finalized";
+  setStatus(esc(d.status) + " · " + d.iterations + " iterations", good ? "ok" : "warn");
+
+  const traj = (d.score_trajectory || []);
+  const improvement = (d.improvement == null) ? "-" : (d.improvement > 0 ? "+" : "") + d.improvement.toFixed(1) + " pts";
+
+  $("tab-summary").innerHTML = `
+    <div style="margin-bottom:12px">${bar(d.best_score, d.target_score, 44)}
+      <span class="meta" style="color:var(--muted)"> target ${d.target_score}%</span></div>
+    <dl class="kv">
+      <dt>status</dt><dd><span class="pill ${good ? "ok" : "warn"}">${esc(d.status)}</span></dd>
+      <dt>iterations</dt><dd>${d.iterations}</dd>
+      <dt>trajectory</dt><dd class="mono">${traj.length ? traj.map(v => v.toFixed(1) + "%").join("  →  ") : "never scored"}</dd>
+      <dt>improvement</dt><dd>${esc(improvement)}</dd>
+      <dt>actions</dt><dd class="mono">${(d.iterations_detail || []).map(r => esc(r.action)).join(" → ")}</dd>
+      <dt>tokens</dt><dd>${(d.tokens && d.tokens.total) || 0} (${(d.tokens && d.tokens.input) || 0} in / ${(d.tokens && d.tokens.output) || 0} out)</dd>
+      <dt>elapsed</dt><dd>${d.elapsed_s}s</dd>
+      <dt>run id</dt><dd class="mono">${esc(d.run_id)}</dd>
+    </dl>
+    ${(d.notes || []).length ? `<div style="margin-top:12px">${d.notes.map(n => `<div class="banner note">${esc(n)}</div>`).join("")}</div>` : ""}`;
+
+  const cards = d.scorecards || [];
+  $("tab-scores").innerHTML = cards.length ? cards.map((c, i) => `
+    <div style="margin-bottom:16px">
+      <div style="font-weight:650;margin-bottom:6px">Scoring #${i + 1} &mdash; ${c.weighted_percent.toFixed(1)}%</div>
+      <table>
+        <thead><tr><th>Criterion</th><th class="num">Score</th><th class="num">Weight</th><th class="num">Headroom</th><th>Judge evidence</th></tr></thead>
+        <tbody>${c.scores.map(s => `
+          <tr>
+            <td class="mono">${esc(s.criterion_id)}</td>
+            <td class="num">${s.score}/${c.scale.max}</td>
+            <td class="num">${(s.weight * 100).toFixed(0)}%</td>
+            <td class="num">${s.headroom.toFixed(1)} pts</td>
+            <td><span style="color:var(--muted);font-size:12px">${esc(s.evidence || "-")}</span><br>${esc(s.justification || "")}</td>
+          </tr>`).join("")}</tbody>
+      </table>
+    </div>`).join("") : `<div class="empty">The draft was never scored.</div>`;
+
+  $("tab-drafts").innerHTML = `
+    <div class="hint" style="margin-bottom:10px">The run returns the <strong>best-scoring draft ever seen</strong>, not the last one produced.</div>
+    <div class="drafts">
+      <div class="draft"><h3>Input (${(d.initial_score == null ? "unscored" : d.initial_score.toFixed(1) + "%")})</h3>
+        <div class="txt">${esc(d.initial_draft)}</div></div>
+      <div class="draft"><h3>Best draft (${(d.best_score == null ? "unscored" : d.best_score.toFixed(1) + "%")})</h3>
+        <div class="txt">${esc(d.best_draft)}</div></div>
+    </div>`;
+
+  const stats = d.memory_stats || {};
+  const writes = d.memory_writes || [];
+  const lessons = d.lessons || [];
+  $("tab-memory").innerHTML = `
+    <dl class="kv">
+      <dt>store</dt><dd class="mono">${esc(stats.db_path || "disabled")}</dd>
+      <dt>records</dt><dd>${stats.total || 0} ${stats.by_kind ? "(" + esc(JSON.stringify(stats.by_kind)) + ")" : ""}</dd>
+      <dt>sessions</dt><dd>${stats.sessions || 0}</dd>
+      <dt>recall</dt><dd>${stats.vector_enabled ? "vector + keyword, " + stats.vector_dimension + "d (" + esc(stats.embedder || "") + ")" : "keyword only (FTS5/BM25)"}</dd>
+      <dt>degraded</dt><dd>${stats.degraded ? `<span class="pill bad">yes</span> ${esc(stats.degraded_reason || "")}` : `<span class="pill ok">no</span>`}</dd>
+    </dl>
+    <h3 style="font-size:13px;margin:16px 0 6px">Written by this run (${writes.length})</h3>
+    ${writes.length ? writes.map(w => `<div class="${w.kind === "lesson" ? "lesson" : "recalled"}">
+        <span class="k">${esc(w.kind)}</span> <span class="meta">iter ${w.iteration}</span>
+        <div>${esc(w.content)}</div></div>`).join("") : `<div class="hint">nothing (memory disabled)</div>`}
+    <h3 style="font-size:13px;margin:16px 0 6px">All stored lessons (${lessons.length})</h3>
+    ${lessons.length ? `<table><thead><tr><th>Lesson</th><th class="num">Rubric</th><th class="num">Hits</th></tr></thead>
+      <tbody>${lessons.map(l => `<tr><td>${esc(l.content)}</td><td class="num mono">${esc(l.rubric_id)}</td><td class="num">${l.hits}</td></tr>`).join("")}</tbody></table>`
+      : `<div class="hint">none yet</div>`}
+    <div class="hint" style="margin-top:10px">
+      Lessons are rubric-scoped and cross sessions; episodes are session-local.
+      Run again with a <strong>different session id</strong> to see recall change the very first decision.
+    </div>`;
+}
+
+/* ------------------------------------------------------------------ */
+/* run                                                                 */
+/* ------------------------------------------------------------------ */
+
+async function run() {
+  if (running) return;
+  const text = $("text").value.trim();
+  if (!text) { alert("Enter or select some text first."); return; }
+
+  running = true;
+  $("run").disabled = true;
+  $("transcript").innerHTML = "";
+  setStatus('<span class="spin">◐</span> starting', "run");
+
+  const body = {
+    rubric_id: $("rubric").value,
+    text,
+    provider: $("provider").value,
+    target_score: Number($("target").value),
+    max_iterations: Number($("iters").value),
+    revise_candidates: Number($("candidates").value),
+    memory_enabled: $("memon").checked,
+    session_id: $("session").value.trim() || "web-demo",
+    simulate_failure: $("failure").value,
+    fail_step: $("failstep").value
+  };
+
+  try {
+    const res = await fetch("/api/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        let msg;
+        try { msg = JSON.parse(line); } catch { continue; }
+        const fn = handlers[msg.event];
+        if (fn) fn(msg.data);
+      }
+    }
+  } catch (err) {
+    banner("err", "stream failed: " + err);
+    setStatus("error", "bad");
+  } finally {
+    running = false;
+    $("run").disabled = false;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* memory panel actions                                                */
+/* ------------------------------------------------------------------ */
+
+async function refreshMemoryTab() {
+  try {
+    const res = await fetch("/api/memory/stats");
+    const d = await res.json();
+    const stats = d.stats || {};
+    const lessons = d.lessons || [];
+    $("tab-memory").innerHTML = `
+      <dl class="kv">
+        <dt>store</dt><dd class="mono">${esc(stats.db_path || "-")}</dd>
+        <dt>records</dt><dd>${stats.total || 0} ${stats.by_kind ? "(" + esc(JSON.stringify(stats.by_kind)) + ")" : ""}</dd>
+        <dt>sessions</dt><dd>${(d.sessions || []).length} ${(d.sessions || []).length ? "<span class='mono'>" + esc((d.sessions || []).join(", ")) + "</span>" : ""}</dd>
+        <dt>recall</dt><dd>${stats.vector_enabled ? "vector + keyword" : "keyword only (FTS5/BM25)"}</dd>
+      </dl>
+      <h3 style="font-size:13px;margin:16px 0 6px">Stored lessons (${lessons.length})</h3>
+      ${lessons.length ? `<table><thead><tr><th>Lesson</th><th class="num">Rubric</th><th class="num">Hits</th></tr></thead>
+        <tbody>${lessons.map(l => `<tr><td>${esc(l.content)}</td><td class="num mono">${esc(l.rubric_id)}</td><td class="num">${l.hits}</td></tr>`).join("")}</tbody></table>`
+        : `<div class="hint">Nothing stored yet. Run the loop once with memory enabled.</div>`}`;
+  } catch { /* panel is optional */ }
+}
+
+async function clearMemory(sessionOnly) {
+  const payload = sessionOnly ? { session_id: $("session").value.trim() } : {};
+  const res = await fetch("/api/memory/clear", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
+  });
+  const d = await res.json();
+  banner("note", `cleared ${d.removed} record(s) for ${d.session_id}`);
+  refreshMemoryTab();
+}
+
+/* ------------------------------------------------------------------ */
+/* wiring                                                              */
+/* ------------------------------------------------------------------ */
+
+$("rubric").addEventListener("change", onRubricChange);
+$("provider").addEventListener("change", onProviderChange);
+$("sample").addEventListener("change", () => {
+  const idx = $("sample").value;
+  if (idx === "") return;
+  $("text").value = (BOOT.samples[currentRubric().id] || [])[Number(idx)].text;
+  updateWords();
+});
+$("text").addEventListener("input", () => { $("sample").value = ""; updateWords(); });
+$("run").addEventListener("click", run);
+$("reset").addEventListener("click", () => {
+  $("transcript").innerHTML = `<div class="empty">Pick a sample and press <strong>Run loop</strong>.</div>`;
+  for (const id of ["summary", "scores", "drafts"]) $("tab-" + id).innerHTML = `<div class="empty">No run yet.</div>`;
+  setStatus("idle", "");
+  refreshMemoryTab();
+});
+$("clearsession").addEventListener("click", () => clearMemory(true));
+$("clearall").addEventListener("click", () => clearMemory(false));
+
+$("tabs").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("button[data-tab]");
+  if (!btn) return;
+  for (const b of $("tabs").querySelectorAll("button")) b.classList.toggle("on", b === btn);
+  for (const p of document.querySelectorAll(".tabpane")) p.classList.remove("on");
+  $("tab-" + btn.dataset.tab).classList.add("on");
+  if (btn.dataset.tab === "memory") refreshMemoryTab();
+});
+
+bootstrap();
+</script>
+</body>
+</html>
