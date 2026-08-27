@@ -250,10 +250,27 @@ def _normalise_tool_choice(choice: ToolChoice) -> t.Any:
 
 
 def _error_detail(response: httpx.Response) -> str:
+    """Pull a human-readable message out of an error body, whatever its shape.
+
+    Written defensively because the error path is the worst possible place for
+    a crash: it runs only when something has already gone wrong, and an
+    exception here replaces the provider's diagnosis with our own stack trace.
+    Gemini proved the point -- it returns a JSON **array** at the top level,
+    which turned a readable 4xx into ``AttributeError: 'list' object has no
+    attribute 'get'`` and hid the real reason entirely.
+    """
     try:
         payload = response.json()
     except ValueError:
         return response.text[:400]
+
+    # Gemini wraps its error in a single-element array; OpenAI and Groq use an
+    # object. Unwrap until we are looking at a mapping, or give up on the text.
+    while isinstance(payload, list) and payload:
+        payload = payload[0]
+    if not isinstance(payload, dict):
+        return str(payload)[:400]
+
     error = payload.get("error")
     if isinstance(error, dict):
         return str(error.get("message") or error)[:400]

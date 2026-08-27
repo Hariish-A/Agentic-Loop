@@ -27,6 +27,73 @@ If a session ends abruptly, read **▶ Resume here** at the top, diff it against
 
 ---
 
+## 2026-08-27 — Live verification + reference document ✅
+
+**Status:** complete · **Tests:** 345 passing · **Lint:** clean
+
+### Live path verified end to end
+
+Trajectory on `samples/weak_essay.txt` against Gemini: **7.5% → 50.0% → 100.0%** over six
+iterations (`runs/run_845f9d1b420e/`).
+
+Three things were found only by running it live.
+
+**1. A crash in the error path.** Gemini returns its error body as a JSON **array**; `_error_detail`
+assumed an object, so the first failed call raised `AttributeError: 'list' object has no attribute
+'get'` and replaced the provider's diagnosis with our own stack trace. The error path is the worst
+possible place for a crash — it runs only when something has already gone wrong. Now unwraps
+whatever shape arrives.
+
+**2. `gemini-2.5-flash` is retired.** "No longer available to new users." Only visible once the
+error path stopped crashing.
+
+**3. Free-tier request limits vary sharply by model, and the docs do not say so.** Measured, not
+read:
+
+| Model | Result |
+|---|---|
+| `gemini-3.6-flash` | reports `limit: 5` requests/min — 429s after one iteration |
+| `gemini-3.5-flash-lite` | 14 rapid calls, no 429 — six clean iterations |
+
+Config now defaults to `gemini-3.5-flash-lite`. This is the binding constraint for this loop, which
+makes four calls per iteration — not tokens per minute, as assumed when Gemini was chosen.
+
+### The harness handled a double exhaustion
+
+A run that outlived both free tiers behaved exactly as designed: Gemini `429 ... limit: 5` → three
+backoffs honouring `Retry-After` → **failover to Groq** → Groq `429 ... TPD: Limit 200000, Used
+200000` → failover again. No exception reached the caller.
+
+### The retention guard, recalibrated against live output
+
+The new vocabulary-retention guard fired on real revisions at 18% and 19%. It did not break the run
+— `ToolRecovery` retried and the next candidate passed — but each rejection costs a call on a tier
+where requests are the binding constraint.
+
+Measured distribution: legitimate deep rewrites of hedge-heavy prose land at **0.18–0.23** (the
+rubric rewards deleting exactly the vocabulary hedging supplies), wholesale replacement with
+unrelated content lands **below 0.05**. `MIN_WORD_RETENTION` moved 0.25 → **0.15**, in the gap and
+nearer the fabrication end. Both the greeting fabrication and the unrelated-replacement case are
+still rejected.
+
+### New: `docs/reference.md` → `reference.doc`
+
+A technical reference covering the implemented stack and all three milestones: the five patterns
+with mechanism and cost, which were applied and why, the loop's approach, memory structure and
+policy, and how the harness works. `scripts/make_doc.py` renders it to a Word-openable `.doc`
+(~16 pages). Written as documentation of the code — distinct from `docs/solution.md`, whose prose
+remains the author's own.
+
+### Open items carried forward
+
+- **Groq's daily budget is spent** (200,000 TPD); it recovers on Google's clock, not ours. The
+  chain is `gemini → groq → ollama`, so runs continue regardless.
+- **`MAX_EXPANSION_RATIO = 3.0` is still reasoned, not measured** — unlike the retention floor, no
+  live case has exercised its boundary.
+- The Windows `charmap` encoding bug in the trace subscriber is still open.
+
+---
+
 ## 2026-08-27 — Admission gate + Gemini primary ✅
 
 **Status:** complete · **Tests:** 345 passing (24 new) · **Lint:** clean

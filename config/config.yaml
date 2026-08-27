@@ -32,11 +32,18 @@ llm:
       # tokens-per-day ceiling outright. The binding constraint here is requests
       # per minute (10-15) instead, which four calls per iteration fits inside.
       base_url: https://generativelanguage.googleapis.com/v1beta/openai/
-      # Verify against your own account with `preflight --ping`; Google renames
-      # free-tier models more often than it changes the quotas. Known-good
-      # alternatives: gemini-2.5-flash-lite (higher requests/day, weaker),
-      # gemini-3-flash (newer, if your project has it).
-      model: gemini-2.5-flash
+      # Measured live on 2026-08-27, not taken from documentation. Free-tier
+      # request limits vary sharply *by model*, and that is the binding
+      # constraint for this loop (four calls per iteration):
+      #
+      #   gemini-3.6-flash        limit: 5 requests/min  -> 429s after one
+      #                                                     iteration
+      #   gemini-3.5-flash-lite   14 rapid calls, no 429 -> comfortable
+      #
+      # gemini-2.5-flash is retired ("no longer available to new users").
+      # Re-check with `preflight --ping` if a 404 or a quota error appears;
+      # Google renames free-tier ids faster than it changes the quotas.
+      model: gemini-3.5-flash-lite
       api_key_env: GEMINI_API_KEY
       timeout_s: 90.0
       supports_tools: true

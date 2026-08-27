@@ -142,7 +142,9 @@ def test_build_chain_refuses_to_fall_back_to_a_simulation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """No key anywhere must be an error, not a silent switch to fake scores."""
-    for variable in ("GROQ_API_KEY", "OLLAMA_API_KEY"):
+    # Every provider in the shipped chain, so a key present in the
+    # developer's real environment cannot make this pass by accident.
+    for variable in ("GEMINI_API_KEY", "GROQ_API_KEY", "OLLAMA_API_KEY"):
         monkeypatch.delenv(variable, raising=False)
     config = load_config(CONFIG, overrides={"llm.providers.ollama.requires_key": True})
     with pytest.raises(ProviderUnavailableError) as caught:

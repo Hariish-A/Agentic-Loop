@@ -40,7 +40,15 @@ MAX_EXPANSION_RATIO = 3.0
 #: Fraction of the original's distinct words that must survive into the
 #: revision. Only applied above :data:`RETENTION_FLOOR_MIN_WORDS`, because on a
 #: very short original the denominator is too small to mean anything.
-MIN_WORD_RETENTION = 0.25
+#:
+#: Calibrated against live output rather than guessed. On a deliberately
+#: hedge-heavy essay, legitimate deep rewrites measured 0.18-0.23 retention --
+#: the rubric rewards deleting exactly the vocabulary that hedging supplies --
+#: while wholesale replacement with unrelated content measures below 0.05. At
+#: the original 0.25 the guard rejected one of three real revisions, and each
+#: rejection costs an extra call on a tier where requests are the binding
+#: constraint. 0.15 sits in the gap, nearer the fabrication end.
+MIN_WORD_RETENTION = 0.15
 RETENTION_FLOOR_MIN_WORDS = 25
 #: Temperature spread used when generating multiple candidates. A single
 #: candidate runs at the first value.

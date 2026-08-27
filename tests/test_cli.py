@@ -159,7 +159,9 @@ def test_no_usable_provider_reports_why_each_was_skipped(
     """Answering "why did nothing work?" is the point of checking up front."""
     from agentic_rubric.llm.types import ProviderUnavailableError
 
-    for variable in ("GROQ_API_KEY", "OLLAMA_API_KEY"):
+    # Every provider in the shipped chain, so a key present in the
+    # developer's real environment cannot make this pass by accident.
+    for variable in ("GEMINI_API_KEY", "GROQ_API_KEY", "OLLAMA_API_KEY"):
         monkeypatch.delenv(variable, raising=False)
     config = load_config(
         "config/config.yaml",
