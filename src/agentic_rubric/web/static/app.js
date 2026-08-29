@@ -1,5 +1,5 @@
 /* ---------------------------------------------------------------------------
-   Agentic Rubric Loop - application
+   Rubric Forge - application
 
    No framework and no build step, for the same reason the server is stdlib
    http.server: the whole thing has to run from a fresh checkout with one

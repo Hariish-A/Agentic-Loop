@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# Agentic Rubric Loop
+# Rubric Forge
 #
 # Two decisions worth stating up front, because both cost something:
 #

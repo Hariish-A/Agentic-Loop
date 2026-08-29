@@ -18,7 +18,7 @@
 services:
   agent:
     build: .
-    image: agentic-rubric-loop:latest
+    image: rubric-forge:latest
     env_file:
       # Optional so a fresh clone can run the offline demo before any key exists.
       - path: .env
@@ -46,7 +46,7 @@ services:
   # Answers "will this even work here?" without spending a token.
   preflight:
     build: .
-    image: agentic-rubric-loop:latest
+    image: rubric-forge:latest
     env_file:
       - path: .env
         required: false

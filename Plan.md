@@ -1,4 +1,4 @@
-# Plan — Agentic Rubric Loop
+# Plan — Rubric Forge
 
 > **Use case:** Score text against a rubric and improve it.
 > **Constraint:** No agent frameworks in the core loop. Python 3.10+. Everything free-tier.

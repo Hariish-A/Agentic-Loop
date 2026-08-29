@@ -1,4 +1,4 @@
-# Agentic Rubric Loop — Milestone Notes
+# Rubric Forge — Milestone Notes
 
 Use case: score text against a rubric and improve it.
 

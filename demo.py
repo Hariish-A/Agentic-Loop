@@ -9,8 +9,8 @@ Exists so the application is a single command from a fresh checkout: it puts
 PYTHONPATH, no web framework.
 
 Runs against a live provider only -- there is no simulated mode here. Set
-``GROQ_API_KEY`` in ``.env`` first, or start ``ollama serve`` for the local
-fallback; the page reports which link in the chain is missing.
+``GEMINI_API_KEY`` or ``GROQ_API_KEY`` in ``.env``, or start ``ollama serve``
+for the local fallback; the page reports which link in the chain is missing.
 """
 
 from __future__ import annotations
@@ -44,9 +44,12 @@ def main() -> int:
     url = f"http://{args.host}:{args.port}"
 
     print("=" * 64)
-    print("  Agentic Rubric Loop")
+    print("  Rubric Forge")
     print(f"  {url}")
-    print("  Live providers only. Set GROQ_API_KEY in .env, or run `ollama serve`.")
+    print(
+        "  Live providers only. Set GEMINI_API_KEY or GROQ_API_KEY in .env, "
+        "or run `ollama serve`."
+    )
     print(f"  .env: {ENV_REPORT.path} "
           f"({'found' if ENV_REPORT.exists else 'NOT FOUND'})")
     print("=" * 64)

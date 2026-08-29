@@ -893,7 +893,7 @@ def serve(
             ) from exc
         raise
 
-    print(f"Agentic Rubric Loop -> {url}")
+    print(f"Rubric Forge -> {url}")
     print("Press Ctrl+C to stop.")
     if on_ready is not None:
         on_ready(url)
@@ -908,7 +908,7 @@ def serve(
 def main(argv: t.Sequence[str] | None = None) -> int:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Run the Agentic Rubric Loop application.")
+    parser = argparse.ArgumentParser(description="Run the Rubric Forge application.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args(argv)

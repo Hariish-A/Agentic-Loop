@@ -183,10 +183,10 @@ jobs:
           context: .
           push: false
           load: true
-          tags: agentic-rubric-loop:ci
+          tags: rubric-forge:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: the container runs the loop offline
         run: |
-          docker run --rm agentic-rubric-loop:ci \
+          docker run --rm rubric-forge:ci \
               --input samples/weak_essay.txt --provider mock --no-memory --quiet

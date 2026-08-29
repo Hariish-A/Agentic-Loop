@@ -66,7 +66,7 @@ FAILURE_STEPS = ("reason", "judge", "revise", "reflect")
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="agentic-rubric",
+        prog="rubric-forge",
         description="Score text against a rubric and iteratively improve it.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
